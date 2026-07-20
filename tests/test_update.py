@@ -158,8 +158,39 @@ def main() -> int:
           live.state in (update.UP_TO_DATE, update.AVAILABLE, update.OFFLINE,
                          update.ERROR), live.state)
     if live.state != update.OFFLINE:
-        check("배포된 최신 버전을 읽어온다", bool(live.latest) or True,
-              live.latest or "(아직 릴리스 없음)")
+        # Not "or True". A published release older than the version running
+        # means the bump happened and the release did not, and every copy
+        # out there is being told it is up to date.
+        check("배포된 릴리스가 실행 중인 버전보다 뒤처지지 않는다",
+              bool(live.latest)
+              and update._parse(live.latest) >= update._parse(__version__),
+              f"(배포={live.latest or '없음'}, 실행={__version__})")
+
+    print("\n[릴리스가 밀려 있지 않은지]")
+    # The failure that started all this: five commits pushed to main with no
+    # release, so the check above passed while nobody received anything.
+    # Pushing is not shipping, and only the commit log can tell.
+    if not (Path(__file__).resolve().parent.parent / ".git").exists():
+        print("  건너뜀: git 체크아웃이 아닙니다")
+    else:
+        import subprocess
+        root = Path(__file__).resolve().parent.parent
+
+        def git(*args):
+            done = subprocess.run(["git", *args], cwd=root, text=True,
+                                  capture_output=True)
+            return done.returncode, (done.stdout or "").strip()
+
+        code, tag = git("describe", "--tags", "--abbrev=0")
+        if code:
+            print("  건너뜀: 태그가 없습니다 (git fetch --tags)")
+        else:
+            _, behind = git("log", "--oneline", f"{tag}..HEAD")
+            pending = [l for l in behind.splitlines() if l.strip()]
+            check("마지막 릴리스 이후 배포되지 않은 커밋이 없다",
+                  not pending,
+                  f"({tag} 이후 {len(pending)}건 — python tools/release.py)"
+                  if pending else f"({tag})")
 
     print()
     if _failures:
