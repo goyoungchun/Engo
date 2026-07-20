@@ -13,7 +13,7 @@ from pathlib import Path
 from PySide6.QtCore import QUrl, Qt, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
@@ -523,49 +523,47 @@ class SyncTab(QWidget):
         self.updateAvailable.emit(result.update_available)
 
     def _render_update(self, result) -> None:
-        short = (result.local or "")[:7] or "?"
-        show_apply = False
-        show_link = False
-
-        if result.state == update.UP_TO_DATE:
-            text = t("update_latest", rev=short)
-        elif result.state == update.BEHIND:
-            text = t("update_available", n=result.behind or "?", rev=short)
-            show_apply = True
-            show_link = True
-        elif result.state == update.DIVERGED:
-            text = t("update_diverged")
-            show_link = True
-        elif result.state == update.AHEAD:
-            text = t("update_ahead", rev=short)
-            show_link = True
-        elif result.state == update.NO_GIT:
-            text = t("update_nogit")
-            show_link = True
+        if result.state == update.AVAILABLE:
+            text = t("update_available", latest=result.latest.lstrip("v"),
+                     current=result.current)
         elif result.state == update.OFFLINE:
             text = t("update_offline")
-        else:
+        elif result.state == update.ERROR:
             text = t("update_error")
-            show_link = True
+        else:
+            text = t("update_latest", current=result.current)
 
         self.update_status.setText(text)
-        self.update_apply_btn.setVisible(show_apply)
-        self.update_link_btn.setVisible(show_link)
+        self.update_status.setToolTip(
+            f"{t('update_whats_new')}\n\n{result.notes}" if result.notes else "")
+        self.update_apply_btn.setVisible(result.update_available)
+        self.update_link_btn.setVisible(result.state != update.UP_TO_DATE)
 
     def apply_update(self) -> None:
         if update.has_local_changes():
             QMessageBox.warning(self, t("update_failed"), t("update_dirty"))
             return
+
+        latest = (self._last_check.latest if self._last_check else "").lstrip("v")
         self.update_apply_btn.setEnabled(False)
-        ok, message = update.pull()
+        self.update_status.setText(t("update_downloading"))
+        QApplication.processEvents()
+
+        ok, message = update.install()
+
         self.update_apply_btn.setEnabled(True)
-        self._log(t("log_update", msg=message.splitlines()[-1] if message else ""))
+        self._log(t("log_update",
+                    msg=(message.splitlines()[-1] if message else "ok")))
         if ok:
-            QMessageBox.information(self, t("update_done"), t("update_done_body"))
+            QMessageBox.information(self, t("update_done"),
+                                    t("update_done_body", latest=latest or "?"))
             self.updateAvailable.emit(False)
-            self.check_update()
+        elif message == "local changes":
+            QMessageBox.warning(self, t("update_failed"), t("update_dirty"))
         else:
             QMessageBox.critical(self, t("update_failed"), message or "")
+        self.check_update()
+
 
 
 

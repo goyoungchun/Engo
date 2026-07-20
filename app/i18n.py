@@ -335,30 +335,23 @@ S: dict[str, tuple[str, str]] = {
     "update_check": ("업데이트 확인", "Check for updates"),
     "update_apply": ("업데이트 설치", "Install update"),
     "update_checking": ("확인 중…", "Checking…"),
-    "update_latest": ("최신 버전입니다  (버전 {rev})", "Up to date  (version {rev})"),
-    "update_available": ("새 버전이 있습니다 — {n}개의 변경사항  (현재 {rev})",
-                         "An update is available — {n} change(s)  (you have {rev})"),
-    "update_diverged": ("이 컴퓨터에서 코드를 고친 흔적이 있습니다. "
-                        "직접 확인한 뒤 업데이트하세요.",
-                        "This copy has local commits. Review them before updating."),
-    "update_ahead": ("아직 올리지 않은 커밋이 있습니다  (현재 {rev})",
-                     "You have commits that are not pushed yet  (you have {rev})"),
-    "update_nogit": ("git으로 받은 폴더가 아니라 자동 업데이트를 쓸 수 없습니다. "
-                     "아래 주소에서 최신 버전을 받으세요.",
-                     "This is not a git checkout, so it cannot update itself. "
-                     "Get the latest version from the link below."),
-    "update_offline": ("업데이트 확인 실패 — 인터넷 연결을 확인하세요",
-                       "Could not check — no connection to GitHub"),
+    "update_latest": ("최신 버전입니다  (v{current})", "Up to date  (v{current})"),
+    "update_available": ("새 버전 v{latest} 이 나왔습니다  (현재 v{current})",
+                         "Version {latest} is available  (you have {current})"),
+    "update_offline": ("업데이트를 확인하지 못했습니다 — 인터넷 연결을 확인하세요",
+                       "Could not check for updates — check your connection"),
     "update_error": ("업데이트 확인 중 문제가 생겼습니다", "Something went wrong while checking"),
-    "update_dirty": ("고친 파일이 있어 업데이트할 수 없습니다.\n\n"
-                     "먼저 변경 사항을 되돌리거나 커밋한 뒤 다시 시도하세요.",
-                     "You have edited files, so the update cannot run.\n\n"
-                     "Revert or commit your changes first, then try again."),
+    "update_dirty": ("이 폴더의 파일을 직접 고친 흔적이 있어 업데이트하지 않았습니다.\n\n"
+                     "고친 내용이 지워지지 않도록 멈춘 것입니다.",
+                     "Files in this folder have been edited, so the update was "
+                     "not applied.\n\nStopping here keeps your changes safe."),
+    "update_downloading": ("새 버전을 받는 중입니다…", "Downloading the new version…"),
     "update_done": ("업데이트 완료", "Update finished"),
-    "update_done_body": ("최신 버전으로 업데이트했습니다.\n\n"
+    "update_done_body": ("v{latest} 으로 업데이트했습니다.\n\n"
                          "프로그램을 껐다 켜면 적용됩니다.",
-                         "Updated to the latest version.\n\n"
-                         "Restart the program to use it."),
+                         "Updated to v{latest}.\n\n"
+                         "Restart the program to start using it."),
+    "update_whats_new": ("바뀐 점", "What's new"),
     "update_failed": ("업데이트 실패", "Update failed"),
     "log_update": ("업데이트 — {msg}", "Update — {msg}"),
     "open_github": ("GitHub에서 보기", "View on GitHub"),
@@ -461,4 +454,5 @@ def t(key: str, **kwargs) -> str:
 def box_label(level: int) -> str:
     return t(("box_new", "box_1", "box_2", "box_3", "box_4",
               "box_done")[max(0, min(int(level or 0), 5))])
+
 
