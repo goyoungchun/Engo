@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# TTS voice models — 121MB, downloaded by tools/get_voices.py
+voices/
+*.onnx
+*.onnx.json
+
+# Local study data and scratch output
+*.db
+*.db-wal
+*.db-shm
+*.seb
+speech*.wav
+backups/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

@@ -1,0 +1,387 @@
+﻿"""Korean / English UI strings.
+
+One flat table keyed by a short id, each entry a (한국어, English) pair.
+`t("save")` returns the string for whatever language is active.
+
+Deliberately not gettext/.ts files: there are exactly two languages and no
+translator workflow, so a dict that can be read and edited in one place beats
+a toolchain that needs compiling.
+"""
+
+from __future__ import annotations
+
+LANGUAGES = {"ko": "한국어", "en": "English"}
+DEFAULT = "ko"
+
+_current = DEFAULT
+_listeners: list = []
+
+S: dict[str, tuple[str, str]] = {
+    # -- app / general --------------------------------------------------
+    "app_title": ("Engo — 영어 공부 정리", "Engo — English Study Notes"),
+    "save": ("저장", "Save"),
+    "save_shortcut": ("저장  (Ctrl+S)", "Save  (Ctrl+S)"),
+    "revert": ("되돌리기", "Revert"),
+    "delete": ("삭제", "Delete"),
+    "add_new": ("＋ 새로 추가", "＋ Add new"),
+    "cancel": ("취소", "Cancel"),
+    "close": ("닫기", "Close"),
+    "ok": ("확인", "OK"),
+    "yes": ("예", "Yes"),
+    "no": ("아니오", "No"),
+    "tag": ("태그", "Tag"),
+    "tags": ("태그", "Tags"),
+    "all": ("전체", "All"),
+    "search": ("검색", "Search"),
+    "count_items": ("{n}건", "{n} items"),
+    "unsaved": ("● 저장하지 않은 변경 사항이 있습니다",
+                "● You have unsaved changes"),
+    "saved": ("저장했습니다", "Saved"),
+    "search_result": ("검색 결과", "search results"),
+    "nothing_to_save": ("저장할 내용 없음", "Nothing to save"),
+    "nothing_to_save_body": ("내용을 입력한 뒤 저장해 주세요.",
+                             "Type something first, then save."),
+    "pick_or_add": ("왼쪽에서 항목을 고르거나 ＋ 새로 추가를 누르세요",
+                    "Pick an item on the left, or press ＋ Add new"),
+
+    # -- tabs -----------------------------------------------------------
+    "tab_expressions": ("1. 영어 표현", "1. Expressions"),
+    "tab_reading": ("2. 원문 해석", "2. Translate"),
+    "tab_sentences": ("3. 외우고 싶은 문장", "3. Sentences"),
+    "tab_grammar": ("4. 문법", "4. Grammar"),
+    "tab_data": ("5. 데이터", "5. Data"),
+
+    # -- expressions ----------------------------------------------------
+    "expr_title": ("영어 표현", "Expression"),
+    "expr_edit": ("영어 표현 편집", "Edit expression"),
+    "expr_new": ("새 영어 표현", "New expression"),
+    "col_english": ("영어 표현", "Expression"),
+    "col_korean": ("한글 뜻", "Meaning"),
+    "col_studied_on": ("공부한 날", "Studied on"),
+    "col_box": ("복습 단계", "Review level"),
+    "f_english": ("영어 표현", "Expression"),
+    "f_korean": ("한글 뜻", "Meaning"),
+    "f_note": ("메모", "Note"),
+    "f_source": ("출처", "Source"),
+    "f_studied_on": ("공부한 날", "Studied on"),
+    "ph_english": ("예: hit the ground running", "e.g. hit the ground running"),
+    "ph_korean": ("예: 시작하자마자 순조롭게 잘 해내다",
+                  "e.g. to start something quickly and successfully"),
+    "ph_note": ("어디서 봤는지, 헷갈렸던 점, 뉘앙스 등",
+                "Where you saw it, what confused you, nuance…"),
+    "ph_source": ("예: 뉴스 기사 / 미드 제목 / 책", "e.g. news article / TV show / book"),
+    "ph_tags": ("쉼표로 구분 (예: 비즈니스, 관용구)",
+                "Comma separated (e.g. business, idiom)"),
+    "ph_search": ("검색 (영어·한글·메모·태그)", "Search (text, meaning, note, tag)"),
+
+    # -- sentences ------------------------------------------------------
+    "sent_title": ("외우고 싶은 문장", "Sentence to memorise"),
+    "sent_edit": ("외우고 싶은 문장 편집", "Edit sentence"),
+    "sent_new": ("새 외우고 싶은 문장", "New sentence"),
+    "col_source_text": ("원문", "Original"),
+    "col_translation": ("번역", "Translation"),
+    "col_registered": ("등록일", "Added"),
+    "f_original": ("원문", "Original"),
+    "f_translation": ("번역", "Translation"),
+    "f_registered": ("등록일", "Added"),
+    "ph_sent_en": ("외우고 싶은 영어 문장 그대로", "The English sentence, as it is"),
+    "ph_sent_ko": ("내 번역 또는 참고 번역", "Your translation, or a reference one"),
+    "ph_sent_note": ("구조 분석, 왜 외우고 싶은지 등",
+                     "Structure, why you want to memorise it…"),
+    "starred": ("⭐ 우선 암기 문장으로 표시", "⭐ Mark as priority"),
+
+    # -- grammar --------------------------------------------------------
+    "gram_title": ("문법 정리", "Grammar note"),
+    "gram_edit": ("문법 정리 편집", "Edit grammar note"),
+    "gram_new": ("새 문법 정리", "New grammar note"),
+    "col_point": ("주요 표현", "Point"),
+    "col_explanation": ("설명", "Explanation"),
+    "col_written_on": ("정리한 날", "Written on"),
+    "f_point": ("주요 표현", "Point"),
+    "f_explanation": ("설명", "Explanation"),
+    "f_examples": ("예문", "Examples"),
+    "f_written_on": ("정리한 날", "Written on"),
+    "ph_point": ("예: 가정법 과거완료 (If + had p.p.)",
+                 "e.g. Third conditional (If + had p.p.)"),
+    "ph_explanation": ("규칙, 언제 쓰는지, 헷갈리는 지점",
+                       "The rule, when to use it, what trips you up"),
+    "ph_examples": ("한 줄에 하나씩 적어두면 보기 편합니다", "One per line reads best"),
+    "ph_gram_tags": ("쉼표로 구분 (예: 시제, 관계사)",
+                     "Comma separated (e.g. tense, relative clause)"),
+
+    # -- delete confirm -------------------------------------------------
+    "delete_confirm": ("삭제 확인", "Confirm delete"),
+    "delete_body": (
+        "{n}건을 삭제할까요?\n\n휴지통처럼 표시만 지워지고, 다른 기기와 병합할 때 "
+        "그 기기에서도 삭제되도록 기록이 남습니다.",
+        "Delete {n} item(s)?\n\nThey are hidden rather than erased, and the "
+        "deletion is recorded so it carries over when you merge with another "
+        "device."),
+
+    # -- reading tab ----------------------------------------------------
+    "reading_pick": ("지문을 고르거나 새로 추가하세요", "Pick a passage, or add one"),
+    "passage_search": ("지문 검색", "Search passages"),
+    "new_passage": ("＋ 새 지문", "＋ New passage"),
+    "new_passage_title": ("새 지문 추가", "Add a passage"),
+    "resplit": ("원문 다시 나누기", "Re-split the text"),
+    "resplit_tip": ("원문을 고쳐서 다시 문장 단위로 나눕니다. "
+                    "내용이 바뀌지 않은 문장의 해석은 그대로 유지됩니다.",
+                    "Edit the text and split it into sentences again. "
+                    "Translations of unchanged sentences are kept."),
+    "send_to_sentences": ("선택 문장 → 외우고 싶은 문장", "Selected → Sentences"),
+    "send_tip": ("고른 행의 원문과 내 해석을 그대로 3번 탭에 추가합니다",
+                 "Copies the chosen rows into the Sentences tab"),
+    "col_no": ("#", "#"),
+    "col_star": ("★", "★"),
+    "col_source_en": ("영어 원문", "English"),
+    "col_my_translation": ("내 해석", "My translation"),
+    "col_feedback": ("피드백 메모", "Feedback note"),
+    "reading_hint": ("해석·메모 칸을 더블클릭하면 바로 입력됩니다. 입력한 내용은 자동 저장됩니다.",
+                     "Double-click a translation or note cell to type. Saved automatically."),
+    "progress_done": ("{done} / {total} 문장 해석함", "{done} / {total} sentences done"),
+    "progress_short": ("{done}/{total} 문장 해석함", "{done}/{total} done"),
+    "f_title": ("제목", "Title"),
+    "ph_passage_title": ("예: BBC 기사 - Climate report 2026",
+                         "e.g. BBC article - Climate report 2026"),
+    "f_tags_optional": ("태그 (쉼표로 구분, 선택)", "Tags (comma separated, optional)"),
+    "paste_here": ("영어 원문 — 붙여넣으면 문장마다 한 행으로 나뉩니다",
+                   "English text — pasted text is split into one row per sentence"),
+    "ph_paste": ("Paste the English text here…", "Paste the English text here…"),
+    "split_button": ("문장으로 나누기", "Split into sentences"),
+    "no_text": ("원문 없음", "No text"),
+    "no_text_body": ("영어 원문을 붙여넣어 주세요.", "Please paste some English text."),
+    "delete_passage": ("지문 삭제", "Delete passage"),
+    "delete_passage_body": ("'{title}' 지문과 해석을 모두 삭제할까요?",
+                            "Delete '{title}' and all its translations?"),
+    "no_selection": ("선택 없음", "Nothing selected"),
+    "no_selection_body": ("보낼 문장의 행을 먼저 고르세요.",
+                          "Select the rows you want to send first."),
+    "added": ("추가 완료", "Added"),
+    "added_body": ("{n}개 문장을 '외우고 싶은 문장'에 추가했습니다.",
+                   "Added {n} sentence(s) to Sentences."),
+    "untitled": ("제목 없음", "Untitled"),
+
+    # -- sticky notes ---------------------------------------------------
+    "sticky": ("복습 메모지", "Review note"),
+    "sticky_new": ("📌 복습 메모지 (오늘 공부한 것)", "📌 Review note (today)"),
+    "sticky_weak": ("📌 헷갈리는 표현만", "📌 Only the shaky ones"),
+    "sticky_sentences": ("📌 외우고 싶은 문장", "📌 Sentences to memorise"),
+    "sticky_settings": ("메모지 설정", "Note settings"),
+    "reveal": ("👆 눌러서 뜻 보기", "👆 Tap to reveal"),
+    "empty_meaning": ("(뜻이 비어 있습니다)", "(no meaning yet)"),
+    "know": ("알아요", "I know it"),
+    "unsure": ("헷갈려요", "Not sure"),
+    "tip_reveal": ("뜻 전체 보이기 / 가리기", "Show / hide all meanings"),
+    "tip_refresh": ("다시 불러오기", "Reload"),
+    "tip_settings": ("설정", "Settings"),
+    "tip_close": ("닫기", "Close"),
+    "scope_today": ("오늘 공부한 것", "Today's study"),
+    "scope_weak": ("헷갈리는 것", "Shaky ones"),
+    "scope_weak_long": ("헷갈리는 것만 (복습 단계 낮은 순)", "Only shaky ones (lowest level first)"),
+    "scope_all": ("전체", "Everything"),
+    "what_to_review": ("무엇을 복습할까요", "What to review"),
+    "scope": ("범위", "Scope"),
+    "colour": ("색상", "Colour"),
+    "hide_meaning": ("한글 뜻을 가린 채로 열기", "Open with meanings hidden"),
+    "always_on_top": ("항상 다른 창 위에 두기", "Keep above other windows"),
+    "always_on_top_short": ("항상 위에 두기", "Always on top"),
+    "opacity": ("투명도", "Opacity"),
+    "batch_status": ("{shown}건 표시 · 전체 {total}건 · ⟳ 로 다음 묶음",
+                     "{shown} shown · {total} total · ⟳ for the next batch"),
+    "remaining": ("{n}건 남음", "{n} left"),
+    "sticky_empty_today": ("오늘 정리한 표현이 아직 없습니다.\n메인 창에서 표현을 추가해 보세요.",
+                           "Nothing studied today yet.\nAdd an expression in the main window."),
+    "sticky_empty_other": ("이 범위에 복습할 항목이 없습니다.\n⚙ 설정에서 범위를 바꿔보세요.",
+                           "Nothing to review in this scope.\nTry another scope in ⚙ settings."),
+    "kind_expressions": ("영어 표현", "Expressions"),
+    "kind_sentences": ("외우고 싶은 문장", "Sentences"),
+    "close_this_note": ("이 메모지 닫기", "Close this note"),
+    "settings_dots": ("설정…", "Settings…"),
+    "notes_restored": ("복습 메모지 {n}개를 다시 띄웠습니다.", "Reopened {n} review note(s)."),
+
+    # -- review levels --------------------------------------------------
+    "box_new": ("새 항목", "New"),
+    "box_1": ("1단계", "Level 1"),
+    "box_2": ("2단계", "Level 2"),
+    "box_3": ("3단계", "Level 3"),
+    "box_4": ("4단계", "Level 4"),
+    "box_done": ("완료", "Done"),
+
+    # -- menus ----------------------------------------------------------
+    "menu_study": ("학습(&S)", "&Study"),
+    "menu_view": ("보기(&V)", "&View"),
+    "menu_data": ("데이터(&D)", "&Data"),
+    "menu_help": ("도움말(&H)", "&Help"),
+    "menu_new_note": ("복습 메모지 새로 띄우기", "New review note"),
+    "menu_weak_note": ("헷갈리는 표현만 메모지로", "Note with only the shaky ones"),
+    "menu_sentence_note": ("외우고 싶은 문장 메모지", "Note with sentences"),
+    "menu_save_current": ("현재 항목 저장", "Save current item"),
+    "menu_hide_tray": ("트레이로 숨기기", "Hide to tray"),
+    "menu_theme": ("색 테마", "Colour theme"),
+    "menu_voice": ("읽어주기 음성", "Reading voice"),
+    "voice_female": ("여성 목소리", "Female voice"),
+    "voice_male": ("남성 목소리", "Male voice"),
+    "voice_off": ("읽어주기 끄기", "Turn reading off"),
+    "speak_tip": ("영어를 소리로 듣기  (Ctrl+P)", "Hear the English  (Ctrl+P)"),
+    "menu_speak": ("현재 항목 읽어주기", "Read the current item"),
+    "menu_language": ("언어 / Language", "Language / 언어"),
+    "menu_open_data": ("데이터 관리 열기", "Open data manager"),
+    "menu_open_folder": ("저장 폴더 열기", "Open data folder"),
+    "menu_about": ("이 프로그램에 대해", "About this program"),
+    "tray_open": ("메인 창 열기", "Open main window"),
+    "tray_refresh_notes": ("열린 메모지 모두 새로고침", "Refresh all open notes"),
+    "tray_close_notes": ("열린 메모지 모두 닫기", "Close all open notes"),
+    "tray_autostart": ("윈도우 시작할 때 자동 실행", "Start with Windows"),
+    "tray_quit": ("종료", "Quit"),
+    "autostart_failed": ("자동 실행 설정 실패", "Could not set autostart"),
+    "autostart_failed_body": (
+        "레지스트리에 접근하지 못했습니다.\n시작 프로그램 폴더에 바로가기를 직접 넣어도 됩니다.",
+        "Could not write to the registry.\nYou can add a shortcut to the "
+        "Startup folder instead."),
+
+    # -- status bar -----------------------------------------------------
+    "status": ("표현 {expr}   ·   문장 {sent}   ·   문법 {gram}   ·   지문 {pass}"
+               "      |      오늘 {today}건   ·   복습 필요 {weak}건   ·   메모지 {notes}개",
+               "Expressions {expr}   ·   Sentences {sent}   ·   Grammar {gram}   ·   "
+               "Passages {pass}      |      Today {today}   ·   To review {weak}   ·   "
+               "Notes {notes}"),
+    "about_body": (
+        "<b>Engo</b><br>영어 표현·문장·문법을 직접 정리하고, "
+        "복습 메모지로 다시 보는 프로그램입니다.<br><br>"
+        "저장 위치: {path}<br>기기 이름: {device} ({id})<br><br>"
+        "데이터는 이 컴퓨터에만 저장됩니다. 다른 기기와는 "
+        "<b>데이터</b> 탭에서 파일로 주고받아 합칠 수 있습니다.",
+        "<b>Engo</b><br>Write up the expressions, sentences and grammar "
+        "you study, then review them on sticky notes.<br><br>"
+        "Stored at: {path}<br>Device: {device} ({id})<br><br>"
+        "Your data stays on this computer. To move it between machines, use "
+        "the <b>Data</b> tab to export and merge a file."),
+
+    # -- data tab -------------------------------------------------------
+    "this_device": ("이 기기", "This device"),
+    "device_name": ("기기 이름", "Device name"),
+    "device_info": ("기기 ID {id}   ·   저장 위치 {path}   ·   {size} KB",
+                    "Device ID {id}   ·   Stored at {path}   ·   {size} KB"),
+    "export_box": ("내보내기 — 다른 기기로 옮길 파일 만들기",
+                   "Export — make a file to carry to another device"),
+    "export_full": ("전체 내보내기", "Export everything"),
+    "export_incremental": ("마지막 내보내기 이후 변경분만", "Only changes since last export"),
+    "export_button": ("파일로 내보내기", "Export to file"),
+    "export_hint": ("마지막 내보내기: {when}   ·   변경분만 내보내면 파일이 작아지고, "
+                    "합쳤을 때 결과는 전체 내보내기와 같습니다.",
+                    "Last export: {when}   ·   Exporting only changes makes a "
+                    "smaller file and merges to the same result."),
+    "import_box": ("가져오기 — 다른 기기에서 만든 파일 합치기",
+                   "Import — merge a file from another device"),
+    "ph_import": ("합칠 .seb 파일을 고르세요", "Choose a .seb file to merge"),
+    "choose_file": ("파일 선택…", "Choose file…"),
+    "preview_merge": ("병합 미리보기", "Preview merge"),
+    "do_merge": ("합치기", "Merge"),
+    "backup_first": ("합치기 전에 지금 상태를 자동 백업", "Back up before merging"),
+    "merge_rule": (
+        "같은 항목이 양쪽에 있으면 <b>더 나중에 수정한 쪽</b>이 남습니다. "
+        "한쪽에만 있는 항목은 그대로 추가되고, 한쪽에서 지운 항목은 삭제가 함께 반영됩니다. "
+        "같은 파일을 두 번 합쳐도 결과는 같습니다.",
+        "When an item exists on both sides, <b>the one edited more recently</b> "
+        "wins. Items on only one side are added, and deletions carry over. "
+        "Merging the same file twice changes nothing."),
+    "other_box": ("CSV 주고받기 · 백업 · 정리", "CSV · Backup · Clean up"),
+    "export_csv": ("CSV로 내보내기", "Export CSV"),
+    "import_csv": ("CSV 가져오기", "Import CSV"),
+    "import_csv_tip": ("엑셀 등에서 정리한 표를 새 항목으로 추가합니다 (병합이 아니라 추가)",
+                       "Adds rows from a spreadsheet as new items (adds, does not merge)"),
+    "backup_now": ("지금 백업", "Back up now"),
+    "purge": ("정리", "Clean up"),
+    "purge_tip": ("180일보다 오래된 삭제 기록을 완전히 지우고 파일 크기를 줄입니다",
+                  "Erase deletion records older than 180 days and shrink the file"),
+    "log_placeholder": ("작업 결과가 여기에 표시됩니다.", "Results will appear here."),
+    "export_dialog": ("학습 데이터 내보내기", "Export study data"),
+    "export_failed": ("내보내기 실패", "Export failed"),
+    "export_done": ("내보내기 완료", "Export finished"),
+    "export_done_body": ("{n}행을 저장했습니다.\n\n{path}\n\n"
+                         "이 파일을 다른 기기로 옮긴 뒤 '가져오기'에서 합치면 됩니다.",
+                         "Saved {n} rows.\n\n{path}\n\n"
+                         "Copy it to the other device and merge it there."),
+    "import_dialog": ("가져올 파일 선택", "Choose a file to import"),
+    "unreadable": ("읽을 수 없는 파일", "Cannot read this file"),
+    "import_failed": ("가져오기 실패", "Import failed"),
+    "merge_preview": ("병합 미리보기", "Merge preview"),
+    "merge_done": ("합치기 완료", "Merge finished"),
+    "preview_note": ("\n\n※ 미리보기입니다. 실제로 반영되지 않았습니다.",
+                     "\n\nThis was a preview. Nothing was changed."),
+    "backup_failed": ("백업 실패", "Backup failed"),
+    "backup_failed_body": ("백업에 실패했습니다:\n{err}\n\n그래도 합칠까요?",
+                           "Backup failed:\n{err}\n\nMerge anyway?"),
+    "backup_done": ("백업 완료", "Backup finished"),
+    "done": ("완료", "Done"),
+    "csv_done": ("{n}행을 CSV로 저장했습니다.", "Saved {n} rows to CSV."),
+    "csv_import_confirm": ("첫 줄이 열 이름이어야 합니다:\n{fields}\n\n"
+                           "모든 행이 새 항목으로 추가됩니다 (병합 아님). 계속할까요?",
+                           "The first row must be column names:\n{fields}\n\n"
+                           "Every row is added as a new item (not merged). Continue?"),
+    "csv_added": ("{n}행을 추가했습니다.", "Added {n} rows."),
+    "purge_confirm": ("180일보다 오래된 삭제 기록을 완전히 지웁니다.\n\n"
+                      "그동안 한 번도 합치지 않은 기기가 있다면, 그 기기와 합칠 때 "
+                      "지웠던 항목이 되살아날 수 있습니다. 계속할까요?",
+                      "This erases deletion records older than 180 days.\n\n"
+                      "If a device has not merged since then, items you deleted "
+                      "may come back when you merge with it. Continue?"),
+    "log_export": ("내보내기 완료 — {n}행, {size} KB → {path}",
+                   "Exported — {n} rows, {size} KB → {path}"),
+    "log_file_ok": ("파일 확인 — {device} 에서 {when} 에 만든 {kind} 파일, {n}행",
+                    "File read — {kind} export from {device}, made {when}, {n} rows"),
+    "kind_full": ("전체", "full"),
+    "kind_partial": ("변경분", "incremental"),
+    "log_merge": ("{title} — 추가 {added} / 갱신 {updated} / 유지 {skipped}",
+                  "{title} — added {added} / updated {updated} / kept {skipped}"),
+    "log_backup": ("자동 백업 — {path}", "Auto backup — {path}"),
+    "log_backup_done": ("백업 완료 — {path}", "Backup finished — {path}"),
+    "log_csv_out": ("CSV 내보내기 — {n}행 → {path}", "CSV export — {n} rows → {path}"),
+    "log_csv_in": ("CSV 가져오기 — {n}행 추가", "CSV import — {n} rows added"),
+    "log_purge": ("정리 완료 — 삭제 기록 {n}건 제거",
+                  "Clean up finished — {n} deletion records removed"),
+    "none": ("없음", "none"),
+    "filter_export": ("Engo 학습 데이터 (*.seb);;JSON 파일 (*.json);;모든 파일 (*.*)",
+                      "Engo data (*.seb);;JSON file (*.json);;All files (*.*)"),
+    "filter_csv": ("CSV 파일 (*.csv)", "CSV file (*.csv)"),
+
+    # -- merge report ---------------------------------------------------
+    "rp_from": ("보낸 기기: {device}", "From device: {device}"),
+    "rp_added": ("새로 추가: {n}건", "Added: {n}"),
+    "rp_updated": ("덮어쓴 항목: {n}건", "Overwritten: {n}"),
+    "rp_skipped": ("그대로 둔 항목: {n}건 (내 쪽이 더 최신)",
+                   "Kept as-is: {n} (mine were newer)"),
+    "rp_deleted": ("삭제 반영: {n}건", "Deletions applied: {n}"),
+    "rp_unknown": ("알 수 없음", "unknown"),
+}
+
+
+def language() -> str:
+    return _current
+
+
+def set_language(code: str) -> None:
+    global _current
+    if code not in LANGUAGES or code == _current:
+        return
+    _current = code
+    for callback in list(_listeners):
+        callback(code)
+
+
+def on_change(callback) -> None:
+    _listeners.append(callback)
+
+
+def t(key: str, **kwargs) -> str:
+    pair = S.get(key)
+    if pair is None:
+        return key                      # visible, so a missing key is obvious
+    text = pair[1] if _current == "en" else pair[0]
+    return text.format(**kwargs) if kwargs else text
+
+
+def box_label(level: int) -> str:
+    return t(("box_new", "box_1", "box_2", "box_3", "box_4",
+              "box_done")[max(0, min(int(level or 0), 5))])
+
