@@ -257,6 +257,7 @@ S: dict[str, tuple[str, str]] = {
     "slots_col_name": ("이름", "Name"),
     "slots_col_model": ("음성 파일", "Voice file"),
     "slots_col_state": ("상태", "State"),
+    "default_mark": ("(기본값)", "(default)"),
     "slots_ready": ("받아둠", "ready"),
     "slots_not_ready": ("없음", "not downloaded"),
     "slots_get": ("받기", "Get"),

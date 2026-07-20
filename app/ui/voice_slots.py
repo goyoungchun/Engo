@@ -1,4 +1,4 @@
-"""Editor for the four voice slots.
+﻿"""Editor for the four voice slots.
 
 Each slot is a name plus a Piper voice. The shipped four are a starting point,
 not a fixed list -- any slot can be pointed at a different voice from the
@@ -54,7 +54,7 @@ class VoiceSlotsDialog(QDialog):
         grid = QGridLayout()
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(8)
-        for column, key in enumerate(("slots_col_name", "slots_col_model",
+        for column, key in enumerate(("slots_col_name", "", "slots_col_model",
                                       "slots_col_state", "")):
             label = QLabel(t(key) if key else "")
             label.setStyleSheet("font-weight: 600;")
@@ -67,6 +67,12 @@ class VoiceSlotsDialog(QDialog):
             name = QLineEdit(voice.label("ko"))
             grid.addWidget(name, row, 0)
 
+            # Sits right beside the name, so it is obvious which four slots
+            # hold the voices the program ships with.
+            factory = QLabel()
+            factory.setObjectName("hint")
+            grid.addWidget(factory, row, 1)
+
             model = QComboBox()
             for cat_model, quality, size in tts.CATALOGUE:
                 model.addItem(_catalogue_label(cat_model, quality, size),
@@ -78,17 +84,17 @@ class VoiceSlotsDialog(QDialog):
                 index = model.count() - 1
             model.setCurrentIndex(index)
             model.setMinimumWidth(210)
-            grid.addWidget(model, row, 1)
+            grid.addWidget(model, row, 2)
 
             state = QLabel()
-            grid.addWidget(state, row, 2)
+            grid.addWidget(state, row, 3)
 
             get = QPushButton(t("slots_get"))
             get.clicked.connect(lambda _=False, k=key: self._download(k))
-            grid.addWidget(get, row, 3)
+            grid.addWidget(get, row, 4)
 
-            self.rows[key] = {"name": name, "model": model,
-                              "state": state, "get": get}
+            self.rows[key] = {"name": name, "model": model, "state": state,
+                              "get": get, "factory": factory}
             model.currentIndexChanged.connect(
                 lambda _=0, k=key: self._refresh_row(k))
 
@@ -127,6 +133,9 @@ class VoiceSlotsDialog(QDialog):
         ready = voice.exists()
         row["state"].setText(t("slots_ready") if ready else t("slots_not_ready"))
         row["get"].setVisible(not ready)
+        base = tts.FACTORY_SLOTS[key]
+        is_factory = (voice.model, voice.quality) == (base.model, base.quality)
+        row["factory"].setText(t("default_mark") if is_factory else "")
 
     def _refresh_all(self) -> None:
         for key in tts.SLOT_KEYS:
@@ -155,10 +164,10 @@ class VoiceSlotsDialog(QDialog):
                 missing.append(voice.label("ko"))
 
         for key in tts.SLOT_KEYS:
-            row = self.rows[key]
-            model, quality = row["model"].currentData()
-            tts.save_slot(key, row["name"].text().strip(), model, quality,
-                          tts.VOICES[key].gender)
+            # Through _pending, which copes with an unselected combo.
+            voice = self._pending(key)
+            tts.save_slot(key, voice.label("ko"), voice.model, voice.quality,
+                          voice.gender)
 
         if missing:
             QMessageBox.information(
@@ -177,3 +186,4 @@ class VoiceSlotsDialog(QDialog):
             if index >= 0:
                 row["model"].setCurrentIndex(index)
         self._refresh_all()
+

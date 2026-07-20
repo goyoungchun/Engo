@@ -20,6 +20,12 @@ TAB_KEYS = ["tab_expressions", "tab_reading", "tab_sentences",
             "tab_grammar", "tab_data"]
 
 
+def _voice_label(key: str) -> str:
+    """Slot name, marked when it is still one of the shipped voices."""
+    label = tts.VOICES[key].label(i18n.language())
+    return f"{label}  {t('default_mark')}" if tts.is_factory(key) else label
+
+
 class MainWindow(QMainWindow):
     stickyRequested = Signal(str, str)   # kind, tag
     themeChanged = Signal(str)
@@ -326,8 +332,7 @@ class MainWindow(QMainWindow):
         self.voice_menu.setEnabled(tts.installed())
         self.act_speak.setEnabled(tts.installed())
         for k, action in self.voice_actions.items():
-            action.setText(t("voice_off") if k == "off"
-                           else tts.VOICES[k].label(i18n.language()))
+            action.setText(t("voice_off") if k == "off" else _voice_label(k))
         for tab in self._built.values():
             if hasattr(tab, "speak_btn"):
                 tab.speak_btn.setVisible(tts.installed())

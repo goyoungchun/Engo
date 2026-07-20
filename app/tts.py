@@ -211,6 +211,20 @@ def default_voices() -> list[Voice]:
     return [v for v in VOICES.values() if v.default]
 
 
+def is_factory(key: str) -> bool:
+    """True while a slot still points at the voice it shipped with.
+
+    Compared on the model, not the name: renaming a slot does not stop it
+    being one of the four voices the program comes with, and that is what the
+    marker is telling the user.
+    """
+    factory = FACTORY_SLOTS.get(key)
+    current = VOICES.get(key)
+    if factory is None or current is None:
+        return False
+    return (current.model, current.quality) == (factory.model, factory.quality)
+
+
 def missing_defaults() -> list[Voice]:
     """Default voices that still need downloading."""
     return [v for v in default_voices() if not v.exists()]
