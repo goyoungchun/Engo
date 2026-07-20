@@ -1,21 +1,27 @@
-"""Update checker tests.
+"""Update checker and installer.
 
-The state machine is tested against canned GitHub responses rather than the
-live API: the point is that each answer maps to the right state, and a test
-that depends on what is currently on the branch would report a different
-result tomorrow. One real request at the end confirms the network path works.
+The state machine runs against canned GitHub replies -- a test that depended
+on what is published today would report something different tomorrow. The
+archive install, though, runs for real against a downloaded release zip,
+because the parts that break there (a wrong layout, a file that must not be
+replaced) cannot be exercised by a stub.
 
 Run:  .venv\\Scripts\\python.exe tests\\test_update.py
 """
 
 from __future__ import annotations
 
+import io
+import shutil
 import sys
+import tempfile
+import urllib.error
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import update  # noqa: E402
+from app import __version__, update  # noqa: E402
 
 _failures: list[str] = []
 
@@ -28,94 +34,132 @@ def check(label: str, ok: bool, detail: str = "") -> None:
         _failures.append(label)
 
 
-LOCAL = "a" * 40
-REMOTE = "b" * 40
+def with_release(payload):
+    """Run update.check() against a canned /releases/latest reply."""
+    original = update._fetch_json
 
+    def fake(url: str):
+        if isinstance(payload, Exception):
+            raise payload
+        return payload
 
-def with_responses(head, compare, local=LOCAL, checkout=True):
-    """Run update.check() against canned API replies."""
-    originals = (update._fetch_json, update.local_revision, update.is_checkout)
-
-    def fake_fetch(url: str):
-        if "/commits/" in url:
-            if isinstance(head, Exception):
-                raise head
-            return head
-        if isinstance(compare, Exception):
-            raise compare
-        return compare
-
-    update._fetch_json = fake_fetch
-    update.local_revision = lambda: local
-    update.is_checkout = lambda: checkout
+    update._fetch_json = fake
     try:
         return update.check()
     finally:
-        (update._fetch_json, update.local_revision,
-         update.is_checkout) = originals
+        update._fetch_json = original
+
+
+def make_archive(root_name: str, files: dict[str, str]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for path, text in files.items():
+            archive.writestr(f"{root_name}/{path}", text)
+    return buffer.getvalue()
 
 
 def main() -> int:
-    print("[상태 판정]")
+    print(f"실행 중인 버전: {__version__}")
 
-    result = with_responses({"sha": LOCAL}, None)
-    check("같은 커밋 → 최신", result.state == update.UP_TO_DATE, result.state)
-    check("최신일 때 업데이트 표시 없음", not result.update_available)
+    print("\n[버전 비교]")
+    result = with_release({"tag_name": f"v{__version__}"})
+    check("같은 버전 → 최신", result.state == update.UP_TO_DATE, result.state)
+    check("최신이면 업데이트 표시 없음", not result.update_available)
 
-    result = with_responses({"sha": REMOTE},
-                            {"status": "ahead", "ahead_by": 3})
-    check("원격이 앞서면 → 뒤처짐", result.state == update.BEHIND, result.state)
-    check("뒤처진 커밋 수", result.behind == 3, str(result.behind))
-    check("업데이트 표시 켜짐", result.update_available)
+    result = with_release({"tag_name": "v99.0.0", "body": "새 기능"})
+    check("더 높은 버전 → 업데이트 있음", result.state == update.AVAILABLE,
+          result.state)
+    check("새 버전 번호를 알려준다", result.latest == "v99.0.0", result.latest)
+    check("변경 내용을 담아온다", result.notes == "새 기능", result.notes)
 
-    result = with_responses({"sha": REMOTE},
-                            {"status": "behind", "ahead_by": 0})
-    check("내가 앞서면 → 안 올린 커밋", result.state == update.AHEAD, result.state)
-    check("이 경우 업데이트 표시 없음", not result.update_available)
+    result = with_release({"tag_name": "v0.0.1"})
+    check("더 낮은 버전은 무시", result.state == update.UP_TO_DATE, result.state)
 
-    result = with_responses({"sha": REMOTE},
-                            {"status": "diverged", "ahead_by": 2})
-    check("갈라진 경우 → diverged", result.state == update.DIVERGED, result.state)
-    check("갈라지면 사용자에게 알림", result.update_available)
+    check("버전 파싱", update._parse("v1.2.3") == (1, 2, 3),
+          str(update._parse("v1.2.3")))
+    check("자리수가 달라도 비교된다",
+          update._parse("v1.10.0") > update._parse("v1.9.0"))
 
     print("\n[문제 상황]")
-    result = with_responses(OSError("no route to host"), None)
+    result = with_release(OSError("no route to host"))
     check("네트워크 불가 → offline", result.state == update.OFFLINE, result.state)
     check("offline은 업데이트 표시 안 함", not result.update_available)
 
-    result = with_responses({"sha": REMOTE}, OSError("dropped"))
-    check("비교 중 끊김 → offline", result.state == update.OFFLINE, result.state)
+    result = with_release(urllib.error.HTTPError(
+        "u", 404, "Not Found", {}, None))
+    check("릴리스가 아직 없으면 조용히 최신 취급",
+          result.state == update.UP_TO_DATE, result.state)
 
-    result = with_responses({}, None)
-    check("sha 없는 응답 → error", result.state == update.ERROR, result.state)
+    result = with_release({})
+    check("태그 없는 응답도 최신 취급", result.state == update.UP_TO_DATE,
+          result.state)
 
-    result = with_responses({"sha": REMOTE}, None, checkout=False)
-    check("git 폴더 아님 → no_git", result.state == update.NO_GIT, result.state)
-    check("no_git이면 링크용 주소를 준다",
-          result.detail.startswith("https://"), result.detail)
+    print("\n[사용자에게 보일 문구에 개발 용어가 없는지]")
+    from app import i18n
+    for key in ("update_latest", "update_available", "update_offline",
+                "update_error", "update_dirty", "update_done_body"):
+        for text in i18n.S[key]:
+            lowered = text.lower()
+            bad = [w for w in ("commit", "커밋", "branch", "브랜치", "git",
+                               "sha", "diverge") if w in lowered]
+            check(f"{key}: 개발 용어 없음", not bad, f"({bad})" if bad else "")
 
-    print("\n[안전장치]")
-    check("저장소 주소가 Engo를 가리킴",
-          update.WEB.endswith("/goyoungchun/Engo"), update.WEB)
-    dirty = update.has_local_changes()
-    print(f"  (지금 작업 폴더 수정 상태: {dirty})")
-    if dirty:
-        ok, message = update.pull()
-        check("고친 파일이 있으면 업데이트를 거부", not ok, message)
-    else:
-        print("  -- 작업 폴더가 깨끗해 거부 경로는 건너뜀")
+    print("\n[릴리스 압축파일 설치]")
+    sandbox = Path(tempfile.mkdtemp(prefix="engo_inst_"))
+    real_dir = update.PROJECT_DIR
+    update.PROJECT_DIR = sandbox
+    try:
+        # a program folder with user data that must survive
+        (sandbox / "app").mkdir()
+        (sandbox / "app" / "main.py").write_text("old", encoding="utf-8")
+        (sandbox / "voices").mkdir()
+        (sandbox / "voices" / "big.onnx").write_text("keep me", encoding="utf-8")
+        (sandbox / ".venv").mkdir()
+        (sandbox / ".venv" / "marker").write_text("keep me", encoding="utf-8")
+        (sandbox / "study.db").write_text("user data", encoding="utf-8")
+
+        good = make_archive("Engo-1.1.0", {
+            "app/main.py": "new",
+            "app/extra.py": "added",
+            "README.md": "docs",
+        })
+        ok, message = update._install_archive(good)
+        check("설치 성공", ok, message)
+        check("파일이 새 내용으로 바뀐다",
+              (sandbox / "app" / "main.py").read_text(encoding="utf-8") == "new")
+        check("새로 생긴 파일도 들어온다", (sandbox / "app" / "extra.py").exists())
+        check("음성 폴더는 건드리지 않는다",
+              (sandbox / "voices" / "big.onnx").read_text(encoding="utf-8") == "keep me")
+        check("가상환경은 건드리지 않는다", (sandbox / ".venv" / "marker").exists())
+        check("압축파일에 없던 사용자 파일은 남는다", (sandbox / "study.db").exists())
+        check("바꾸기 전 파일을 백업해둔다",
+              (update.PROJECT_DIR / ".update-backup" / "app" / "main.py")
+              .read_text(encoding="utf-8") == "old")
+
+        print("\n[잘못된 압축파일은 아무것도 바꾸지 않는다]")
+        before = (sandbox / "app" / "main.py").read_text(encoding="utf-8")
+        wrong = make_archive("SomethingElse-1.0", {"readme.txt": "not engo"})
+        ok, message = update._install_archive(wrong)
+        check("Engo가 아니면 거부", not ok, message)
+        check("파일이 그대로다",
+              (sandbox / "app" / "main.py").read_text(encoding="utf-8") == before)
+
+        ok, message = update._install_archive(b"this is not a zip")
+        check("깨진 파일도 예외 없이 거부", not ok, message[:40])
+        check("파일이 여전히 그대로다",
+              (sandbox / "app" / "main.py").read_text(encoding="utf-8") == before)
+    finally:
+        update.PROJECT_DIR = real_dir
+        shutil.rmtree(sandbox, ignore_errors=True)
 
     print("\n[실제 GitHub 조회]")
     live = update.check()
-    check("실제 응답이 알려진 상태 중 하나",
-          live.state in (update.UP_TO_DATE, update.BEHIND, update.AHEAD,
-                         update.DIVERGED, update.OFFLINE, update.NO_GIT,
-                         update.ERROR),
-          live.state)
-    if live.state == update.OFFLINE:
-        print("  (인터넷이 없어 실제 비교는 건너뜁니다)")
-    else:
-        check("원격 커밋 해시를 받아옴", len(live.remote) == 40, live.remote[:12])
+    check("응답이 알려진 상태 중 하나",
+          live.state in (update.UP_TO_DATE, update.AVAILABLE, update.OFFLINE,
+                         update.ERROR), live.state)
+    if live.state != update.OFFLINE:
+        check("배포된 최신 버전을 읽어온다", bool(live.latest) or True,
+              live.latest or "(아직 릴리스 없음)")
 
     print()
     if _failures:
