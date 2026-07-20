@@ -303,3 +303,13 @@ def seal() -> None:
     global _sealed
     _sealed = True
     close()
+
+
+def unseal() -> None:
+    """Deletion failed after seal(): the real data survived, so go back to
+    it. Otherwise everything written between now and quit -- sticky note
+    positions, settings -- would silently die with the scratch database."""
+    global _sealed
+    if _sealed:
+        _sealed = False
+        close()          # drop the scratch connection; next use reopens the file

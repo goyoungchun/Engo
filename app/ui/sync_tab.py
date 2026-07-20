@@ -395,20 +395,25 @@ class SyncTab(QWidget):
             return "\n".join(f"    · {x.label(lang)}   {uninstall.human(x.size)}"
                              for x in targets)
 
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle(t("uninstall_confirm_title"))
-        box.setText(t("uninstall_confirm_body",
-                      items=listing(data) or "    -"))
-        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        box.setDefaultButton(QMessageBox.No)     # the safe answer is preselected
-        if box.exec() != QMessageBox.Yes:
-            return
+        if data:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Warning)
+            box.setWindowTitle(t("uninstall_confirm_title"))
+            # The location is part of the question: if ENGO_HOME points
+            # somewhere unexpected, this is the moment the user can notice.
+            box.setText(t("uninstall_confirm_body", items=listing(data),
+                          path=data[0].path))
+            box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            box.setDefaultButton(QMessageBox.No)   # the safe answer is preselected
+            if box.exec() != QMessageBox.Yes:
+                return
 
         # Second, separate consent for the downloaded components.
         remove_parts = False
         if parts:
-            kept = uninstall.kept_packages()
+            kept = list(uninstall.kept_packages())
+            if uninstall.venv_kept():
+                kept.append(t("uninstall_kept_venv"))
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Question)
             box.setWindowTitle(t("uninstall_parts_title"))
@@ -426,11 +431,15 @@ class SyncTab(QWidget):
         uninstall.close_everything()          # release the db and speech files
         done, failed = uninstall.remove(targets)
         deferred = uninstall.schedule_deferred(targets)
-        if remove_parts:
-            # Only once the downloaded components are gone. If they were kept,
-            # the record of what we downloaded has to survive with them --
-            # relaunching still works, and a later removal needs to know.
+        if any(x.key == "venv" for x in done):
+            # Only once the venv is gone (or queued to go). If components were
+            # kept, the record of what we downloaded has to survive with them
+            # -- relaunching still works, and a later removal needs to know.
             uninstall.drop_manifest()
+        if any(x.key == "data" for x, _ in failed):
+            # The study data survived the attempt. Unseal so anything written
+            # between now and quit lands in it, not in a scratch database.
+            db.unseal()
 
         message = t("uninstall_done_body",
                     items="\n".join(f"    · {x.label(lang)}" for x in done) or "    -")
@@ -438,6 +447,10 @@ class SyncTab(QWidget):
             message += t("uninstall_failed",
                          items="\n".join(f"    · {x.label(lang)} — {why}"
                                          for x, why in failed))
+        foreign = [p for x in done for p in x.leftovers]
+        if foreign:
+            message += t("uninstall_foreign",
+                         items="\n".join(f"    · {p}" for p in foreign[:8]))
         if deferred:
             message += t("uninstall_deferred")
         message += t("uninstall_folder", path=uninstall.PROJECT_DIR)

@@ -128,7 +128,10 @@ def test_uninstall_targets() -> None:
     print("\n[무엇을 지울지]")
     sandbox = Path(_ROOT) / "install"
     (sandbox / "voices").mkdir(parents=True)
-    (sandbox / "voices" / "v.onnx").write_bytes(b"x" * 1000)
+    (sandbox / "voices" / "en_US-ryan-high.onnx").write_bytes(b"x" * 1000)
+    (sandbox / "voices" / "en_US-ryan-high.onnx.json").write_bytes(b"{}")
+    # a model the user copied in themselves -- not ours to delete
+    (sandbox / "voices" / "my-paid-voice.onnx").write_bytes(b"x" * 500)
     (sandbox / ".venv" / "Scripts").mkdir(parents=True)
     (sandbox / ".venv" / "Scripts" / "python.exe").write_bytes(b"x" * 500)
     (sandbox / "mine.txt").write_text("a file the user put here")
@@ -146,7 +149,16 @@ def test_uninstall_targets() -> None:
         db.connect()
         repo.save_row("expressions", {"english": "a", "korean": "가",
                                       "tags": "", "studied_on": repo.today()})
-        check("학습 데이터를 대상으로 잡는다", len(uninstall.data_targets()) == 1)
+        # the user keeps something of their own inside the data folder
+        # (an ENGO_HOME pointed at a shared folder, say)
+        data_dir = Path(_ROOT) / "data"
+        (data_dir / "diary.txt").write_text("Engo가 만들지 않은 파일")
+        targets = uninstall.data_targets()
+        check("학습 데이터를 대상으로 잡는다", len(targets) == 1)
+        check("폴더 전체가 아니라 아는 파일만 대상",
+              targets[0].paths is not None
+              and all("diary" not in p.name for p in targets[0].paths),
+              f"({[p.name for p in (targets[0].paths or [])]})")
 
         keys = [x.key for x in uninstall.component_targets()]
         check("내려받은 음성이 대상", "voices" in keys, f"({keys})")
@@ -155,20 +167,33 @@ def test_uninstall_targets() -> None:
               uninstall.kept_packages() == ["PySide6"])
 
         uninstall.close_everything()
-        done, failed = uninstall.remove(uninstall.data_targets())
-        check("학습 데이터가 지워졌다", not (Path(_ROOT) / "data").exists())
+        done, failed = uninstall.remove(targets)
+        check("데이터베이스가 지워졌다", not (data_dir / "study.db").exists())
         check("실패 없음", not failed, f"({failed})")
+        check("사용자 파일은 남고 그래서 폴더도 남는다",
+              (data_dir / "diary.txt").exists())
+        check("남긴 파일이 보고된다",
+              any("diary" in p.name for x in done for p in x.leftovers),
+              f"({[p.name for x in done for p in x.leftovers]})")
 
         # The point of sealing: shutting down must not rebuild what we erased.
         db.set_meta("device_name", "유령")
-        check("지운 뒤 데이터 폴더가 되살아나지 않는다",
-              not (Path(_ROOT) / "data").exists())
+        check("지운 뒤 데이터베이스가 되살아나지 않는다",
+              not (data_dir / "study.db").exists())
         check("그래도 쓰기가 예외를 내지 않는다 (종료 경로 보호)",
               db.get_meta("device_name") == "유령")
 
+        # ...and if deletion had failed, unseal() goes back to the real file.
+        db.unseal()
+        check("삭제 실패 시 봉인을 풀 수 있다", not db._sealed)
+        db.seal()
+
         parts = uninstall.component_targets()
         uninstall.remove(parts)
-        check("음성이 지워졌다", not (sandbox / "voices").exists())
+        check("내려받은 음성이 지워졌다",
+              not (sandbox / "voices" / "en_US-ryan-high.onnx").exists())
+        check("직접 넣은 음성 파일은 남는다",
+              (sandbox / "voices" / "my-paid-voice.onnx").exists())
         check("라이브러리가 지워졌다", not (sandbox / ".venv").exists())
         check("우리가 안 만든 파일은 그대로", (sandbox / "mine.txt").exists())
         check("프로그램 폴더 자체는 남는다 (사용자가 직접 삭제)", sandbox.exists())
@@ -178,13 +203,47 @@ def test_uninstall_targets() -> None:
         db._sealed = False
 
 
+def test_ownership() -> None:
+    print("\n[직접 만든 .venv 는 지우지 않는다]")
+    sandbox = Path(_ROOT) / "own"
+    (sandbox / ".venv").mkdir(parents=True)
+    real = (uninstall.VENV_DIR, uninstall.VOICES_DIR, manifest.MANIFEST_PATH)
+    uninstall.VENV_DIR = sandbox / ".venv"
+    uninstall.VOICES_DIR = sandbox / "voices"          # does not exist
+    manifest.MANIFEST_PATH = sandbox / "install-manifest.json"
+    try:
+        # No manifest at all -- the record was lost. Err toward keeping.
+        keys = [x.key for x in uninstall.component_targets()]
+        check("기록이 없으면 venv 를 지우지 않는다", "venv" not in keys,
+              f"({keys})")
+        check("남겨 둔다고 알 수 있다", uninstall.venv_kept())
+
+        # A manifest that says setup did NOT create it: same answer.
+        manifest.record_setup(python="py", venv_created=False,
+                              installed=["piper-tts>=1.5"], preexisting=[])
+        keys = [x.key for x in uninstall.component_targets()]
+        check("직접 만든 venv 는 대상이 아니다", "venv" not in keys, f"({keys})")
+
+        # Only a venv the setup step itself created is fair game.
+        manifest.record_setup(python="py", venv_created=True,
+                              installed=[], preexisting=[])
+        keys = [x.key for x in uninstall.component_targets()]
+        check("설치가 만든 venv 만 대상이 된다", "venv" in keys, f"({keys})")
+    finally:
+        uninstall.VENV_DIR, uninstall.VOICES_DIR, manifest.MANIFEST_PATH = real
+
+
 def test_deferred() -> None:
     print("\n[실행 중인 가상환경]")
     sandbox = Path(_ROOT) / "running"
     (sandbox / ".venv").mkdir(parents=True)
     real_venv, real_running = uninstall.VENV_DIR, uninstall._running_from_venv
+    real_manifest = manifest.MANIFEST_PATH
     uninstall.VENV_DIR = sandbox / ".venv"
     uninstall._running_from_venv = lambda: True
+    manifest.MANIFEST_PATH = sandbox / "install-manifest.json"
+    manifest.record_setup(python="py", venv_created=True,
+                          installed=[], preexisting=[])
     try:
         target = [x for x in uninstall.component_targets() if x.key == "venv"][0]
         check("지금은 못 지운다고 표시된다", target.deferred)
@@ -193,6 +252,7 @@ def test_deferred() -> None:
     finally:
         uninstall.VENV_DIR = real_venv
         uninstall._running_from_venv = real_running
+        manifest.MANIFEST_PATH = real_manifest
 
 
 def main() -> int:
@@ -200,6 +260,7 @@ def main() -> int:
     test_long_path()
     test_manifest()
     test_uninstall_targets()
+    test_ownership()
     test_deferred()
 
     db.close()

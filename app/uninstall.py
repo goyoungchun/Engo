@@ -20,7 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import db, manifest
@@ -42,6 +42,15 @@ class Target:
     # True when the file is in use by this very process and can only go once
     # we have quit -- the .venv we are running from.
     deferred: bool = False
+    # When set, delete exactly these paths -- never the whole directory. A
+    # folder can hold files Engo did not put there (an ENGO_HOME the user
+    # pointed at a shared folder, a voice model they copied in by hand), and
+    # those are not ours to delete.
+    paths: list[Path] | None = None
+    # With paths set: remove the directory afterwards only if it is empty.
+    prune: bool = False
+    # Filled in by remove(): what was found in the directory and left alone.
+    leftovers: list[Path] = field(default_factory=list)
 
     def label(self, lang: str) -> str:
         return self.ko if lang == "ko" else self.en
@@ -71,31 +80,72 @@ def _running_from_venv() -> bool:
 
 
 def data_targets() -> list[Target]:
-    """Study data. Everything here is gone for good."""
+    """Study data. Everything here is gone for good.
+
+    Only the files Engo itself writes -- the database, its WAL/SHM
+    companions, backups, generated speech, the error log. The folder is not
+    swept wholesale: ENGO_HOME may point somewhere the user keeps other
+    things, and a wrong environment variable must not cost them that folder.
+    """
     data_dir = db.default_data_dir()
     if not data_dir.exists():
+        return []
+    known: list[Path] = []
+    for name in ("study.db", "study.db-wal", "study.db-shm", "error.log"):
+        item = data_dir / name
+        if item.exists():
+            known.append(item)
+    known += sorted(data_dir.glob("speech*.wav"))
+    if (data_dir / "backups").exists():
+        known.append(data_dir / "backups")
+    if not known:
         return []
     return [Target("data", data_dir,
                    "학습 데이터 (표현·문장·문법·지문·설정·백업)",
                    "Study data (expressions, sentences, grammar, settings, backups)",
-                   _size_of(data_dir))]
+                   sum(_size_of(p) for p in known), paths=known, prune=True)]
+
+
+def _known_voice_files() -> list[Path]:
+    """Voice files Engo could have downloaded -- and only those.
+
+    Matched against the catalogue by filename, because the voices folder can
+    also hold a model the user copied in themselves, which no download of
+    ours produced and no uninstall of ours should take away.
+    """
+    try:
+        from . import tts
+    except Exception:
+        return []                       # cannot tell ours apart: keep all
+    stems = {tts.Voice("", "female", model, quality, "", "").stem
+             for model, quality, _mb in tts.CATALOGUE}
+    stems |= {voice.stem for voice in tts.FACTORY_SLOTS.values()}
+    try:
+        return [item for item in VOICES_DIR.iterdir()
+                if any(item.name.startswith(stem + ".") for stem in stems)]
+    except OSError:
+        return []
 
 
 def component_targets() -> list[Target]:
     """Things the setup step downloaded because they were not here."""
     targets: list[Target] = []
 
-    if VOICES_DIR.exists() and any(VOICES_DIR.iterdir()):
-        targets.append(Target(
-            "voices", VOICES_DIR,
-            "내려받은 읽어주기 음성 파일", "Downloaded speech voices",
-            _size_of(VOICES_DIR)))
+    if VOICES_DIR.exists():
+        files = _known_voice_files()
+        if files:
+            targets.append(Target(
+                "voices", VOICES_DIR,
+                "내려받은 읽어주기 음성 파일", "Downloaded speech voices",
+                sum(_size_of(p) for p in files), paths=files, prune=True))
 
-    # The venv sits inside Engo's own folder and holds only the packages
-    # setup downloaded. Packages that were already on this machine live in
-    # the system Python, which we never installed into and never remove --
+    # Only a venv the setup step created. One the user built themselves is
+    # theirs -- it existed before us, whatever we later pip-installed into
+    # it. When the manifest is missing or unreadable this errs the same way:
+    # toward keeping. Packages that were already on this machine live in the
+    # system Python, which we never installed into and never remove --
     # kept_packages() is what names them for the user.
-    if VENV_DIR.exists():
+    if VENV_DIR.exists() and manifest.venv_is_ours():
         targets.append(Target(
             "venv", VENV_DIR,
             "설치할 때 내려받은 라이브러리 (.venv)",
@@ -103,6 +153,11 @@ def component_targets() -> list[Target]:
             _size_of(VENV_DIR), deferred=_running_from_venv()))
 
     return targets
+
+
+def venv_kept() -> bool:
+    """A .venv exists that we did not create, so removal leaves it alone."""
+    return VENV_DIR.exists() and not manifest.venv_is_ours()
 
 
 def kept_packages() -> list[str]:
@@ -128,10 +183,21 @@ def remove(targets: list[Target]) -> tuple[list[Target], list[tuple[Target, str]
             done.append(target)          # handed to the cleanup script instead
             continue
         try:
-            if target.path.is_file():
-                target.path.unlink()
+            if target.paths is None:
+                if target.path.is_file():
+                    target.path.unlink()
+                else:
+                    shutil.rmtree(target.path)
             else:
-                shutil.rmtree(target.path)
+                for item in target.paths:
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    elif item.exists():
+                        item.unlink()
+                if target.prune and target.path.is_dir():
+                    target.leftovers = sorted(target.path.iterdir())
+                    if not target.leftovers:
+                        target.path.rmdir()
             done.append(target)
         except OSError as error:
             failed.append((target, str(error)))

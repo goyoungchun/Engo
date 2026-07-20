@@ -376,10 +376,12 @@ S: dict[str, tuple[str, str]] = {
     "uninstall_btn": ("모든 데이터 및 프로그램 삭제", "Delete all data and remove Engo"),
     "uninstall_confirm_title": ("정말 삭제할까요?", "Delete everything?"),
     "uninstall_confirm_body": (
-        "이 컴퓨터에서 Engo의 학습 데이터를 모두 지웁니다.\n\n{items}\n\n"
+        "이 컴퓨터에서 Engo의 학습 데이터를 모두 지웁니다.\n\n{items}\n"
+        "    위치: {path}\n\n"
         "지우면 되돌릴 수 없습니다. 남겨두고 싶다면 먼저 '내보내기'로 "
         "저장하세요.\n\n정말 삭제할까요?",
-        "This deletes all of Engo's study data on this computer.\n\n{items}\n\n"
+        "This deletes all of Engo's study data on this computer.\n\n{items}\n"
+        "    Location: {path}\n\n"
         "It cannot be undone. If you want to keep it, export a file "
         "first.\n\nDelete it anyway?"),
     "uninstall_parts_title": ("내려받은 구성 요소도 지울까요?",
@@ -393,6 +395,11 @@ S: dict[str, tuple[str, str]] = {
         "later.\n\nRemove them as well?"),
     "uninstall_kept": ("\n원래 있던 것이라 지우지 않습니다:\n{items}\n",
                        "\nAlready on this computer, so left in place:\n{items}\n"),
+    "uninstall_kept_venv": ("직접 만든 가상환경 (.venv)",
+                            "Your own virtual environment (.venv)"),
+    "uninstall_foreign": (
+        "\nEngo가 만든 것이 아니라서 남겨 둔 파일:\n{items}\n",
+        "\nLeft in place because Engo did not create them:\n{items}\n"),
     "uninstall_done_title": ("삭제했습니다", "Removed"),
     "uninstall_done_body": ("지운 항목:\n{items}\n", "Deleted:\n{items}\n"),
     "uninstall_deferred": (
