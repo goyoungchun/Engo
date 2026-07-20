@@ -47,46 +47,137 @@ class Voice:
     pitch_hz: int = 0        # measured median pitch of a statement
 
     @property
+    def stem(self) -> str:
+        """File stem, e.g. en_US-ryan-high (or en_GB-... for a UK voice)."""
+        if self.model.startswith("en_GB-"):
+            return f"en_GB-{self.model[len('en_GB-'):]}-{self.quality}"
+        return f"en_US-{self.model}-{self.quality}"
+
+    @property
     def filename(self) -> str:
-        return f"en_US-{self.model}-{self.quality}.onnx"
+        return f"{self.stem}.onnx"
 
     @property
     def path(self) -> Path:
         return VOICES_DIR / self.filename
 
     def exists(self) -> bool:
-        return self.path.exists() and self.path.with_suffix(".onnx.json").exists()
+        return (self.path.exists()
+                and (VOICES_DIR / f"{self.stem}.onnx.json").exists())
 
     def label(self, language: str) -> str:
         return self.name_en if language == "en" else self.name_ko
 
     def url(self, ext: str) -> str:
-        return (f"https://huggingface.co/rhasspy/piper-voices/resolve/main"
-                f"/en/en_US/{self.model}/{self.quality}"
-                f"/en_US-{self.model}-{self.quality}{ext}")
+        return _slot_url(self.model, self.quality, ext)
 
 
-# Pitch figures are measured, not guessed -- see the note below. The two
-# "medium" voices are the defaults because they sit higher and lift more
-# clearly at the end of a question; the "high" tier is a bigger model but
-# speaks noticeably lower, which reads as flatter rather than better.
-VOICES: dict[str, Voice] = {
+# Four slots. Each one can be pointed at any Piper voice and given any name,
+# so the shipped choice is a starting point rather than a fixed list.
+SLOT_KEYS = ("slot1", "slot2", "slot3", "slot4")
+
+# Pitch figures are measured, not guessed. The two "medium" voices are the
+# defaults because they sit higher and lift more clearly at the end of a
+# question; the "high" tier is a bigger model but speaks noticeably lower,
+# which reads as flatter rather than better.
+FACTORY_SLOTS: dict[str, Voice] = {
     v.key: v for v in (
-        Voice("female_medium", "female", "hfc_female", "medium",
+        Voice("slot1", "female", "hfc_female", "medium",
               "여성 · 기본", "Female · default", default=True, pitch_hz=251),
-        Voice("male_medium", "male", "hfc_male", "medium",
+        Voice("slot2", "male", "hfc_male", "medium",
               "남성 · 기본", "Male · default", default=True, pitch_hz=167),
-        Voice("female_high", "female", "lessac", "high",
+        Voice("slot3", "female", "lessac", "high",
               "여성 · 낮은 톤 (Lessac)", "Female · lower (Lessac)", pitch_hz=187),
-        Voice("male_high", "male", "ryan", "high",
+        Voice("slot4", "male", "ryan", "high",
               "남성 · 낮은 톤 (Ryan)", "Male · lower (Ryan)", pitch_hz=154),
     )
 }
-DEFAULT_VOICE = "female_medium"
+DEFAULT_VOICE = "slot1"
 
-# Settings written before the high-quality voices existed stored a bare
-# gender; map those onto the new keys instead of silently resetting.
-_LEGACY = {"female": "female_medium", "male": "male_medium"}
+# Piper voices that can be picked for a slot, so the chooser needs no network.
+# (name, quality, rough MB)
+CATALOGUE = [
+    ("hfc_female", "medium", 61), ("hfc_male", "medium", 61),
+    ("amy", "medium", 61), ("kristin", "medium", 61),
+    ("kathleen", "low", 21), ("ljspeech", "medium", 61),
+    ("lessac", "medium", 61), ("lessac", "high", 109),
+    ("ryan", "medium", 61), ("ryan", "high", 115),
+    ("joe", "medium", 61), ("john", "medium", 61),
+    ("bryce", "medium", 61), ("norman", "medium", 61),
+    ("kusal", "medium", 61), ("sam", "medium", 61),
+    ("libritts_r", "medium", 75), ("ljspeech", "high", 109),
+    ("en_GB-alan", "medium", 61), ("en_GB-alba", "medium", 61),
+    ("en_GB-jenny_dioco", "medium", 61), ("en_GB-cori", "high", 109),
+]
+
+
+def _slot_meta_key(slot: str) -> str:
+    return f"tts_slot_{slot}"
+
+
+def _load_slots() -> dict[str, Voice]:
+    """Slot definitions, with any user edits applied over the factory ones."""
+    import json
+    slots: dict[str, Voice] = {}
+    for key in SLOT_KEYS:
+        base = FACTORY_SLOTS[key]
+        raw = db.get_meta(_slot_meta_key(key), "")
+        if not raw:
+            slots[key] = base
+            continue
+        try:
+            data = json.loads(raw)
+            slots[key] = Voice(
+                key=key,
+                gender=data.get("gender", base.gender),
+                model=data.get("model", base.model),
+                quality=data.get("quality", base.quality),
+                name_ko=data.get("name", base.name_ko),
+                name_en=data.get("name", base.name_en),
+                default=base.default,
+                pitch_hz=base.pitch_hz if data.get("model") == base.model else 0,
+            )
+        except (ValueError, TypeError):
+            slots[key] = base
+    return slots
+
+
+def save_slot(key: str, name: str, model: str, quality: str, gender: str) -> None:
+    import json
+    if key not in SLOT_KEYS:
+        return
+    db.set_meta(_slot_meta_key(key), json.dumps(
+        {"name": name, "model": model, "quality": quality, "gender": gender},
+        ensure_ascii=False))
+    _refresh_voices()
+    _engine.invalidate()
+
+
+def reset_slot(key: str) -> None:
+    db.set_meta(_slot_meta_key(key), "")
+    _refresh_voices()
+    _engine.invalidate()
+
+
+VOICES: dict[str, Voice] = dict(FACTORY_SLOTS)
+
+
+def _refresh_voices() -> None:
+    """Re-read slot definitions from the database into VOICES."""
+    VOICES.clear()
+    VOICES.update(_load_slots())
+
+
+def reload_slots() -> None:
+    _refresh_voices()
+
+# Every earlier naming scheme, mapped onto the slot keys so an existing
+# setting is carried forward instead of silently reset.
+_LEGACY = {
+    "female": "slot1", "male": "slot2",
+    "female_medium": "slot1", "male_medium": "slot2",
+    "female_high": "slot3", "male_high": "slot4",
+}
 
 # One-time correction: the high-pitched pair briefly shipped as the default,
 # and anyone who never opened the menu is sitting on a choice they did not
@@ -100,6 +191,15 @@ def _apply_default_fix() -> None:
     db.set_meta(_DEFAULT_FIX, "1")
     if db.get_meta("tts_voice", "") in ("female_high", "male_high"):
         db.set_meta("tts_voice", DEFAULT_VOICE)
+
+
+def _slot_url(model: str, quality: str, ext: str) -> str:
+    """Catalogue entries may name a non-US locale as part of the model."""
+    locale, name = ("en_US", model)
+    if model.startswith("en_GB-"):
+        locale, name = "en_GB", model[len("en_GB-"):]
+    return (f"https://huggingface.co/rhasspy/piper-voices/resolve/main"
+            f"/en/{locale}/{name}/{quality}/{locale}-{name}-{quality}{ext}")
 
 
 def default_voices() -> list[Voice]:
@@ -195,7 +295,7 @@ def download(voices, progress=None, should_stop=None) -> tuple[bool, str]:
         # Config first: it is a few KB, so a wrong name or a dead link fails
         # in a moment instead of after 60MB.
         for ext in (".onnx.json", ".onnx"):
-            target = VOICES_DIR / f"en_US-{voice.model}-{voice.quality}{ext}"
+            target = VOICES_DIR / f"{voice.stem}{ext}"
             if target.exists() and target.stat().st_size > 1000:
                 continue
             part = target.with_suffix(target.suffix + ".part")
@@ -230,6 +330,36 @@ def download(voices, progress=None, should_stop=None) -> tuple[bool, str]:
     if progress is not None:
         progress(total, total, "")
     return True, ""
+
+
+# Silence appended after every clip. Measured trailing silence straight out of
+# the models: hfc_female 25ms, hfc_male 15ms, lessac 170ms -- and ryan 0ms, so
+# its last consonant was being clipped off mid-sound and the playback stopped
+# with an audible cut. Padding gives every voice room to finish.
+TAIL_SILENCE_MS = 250
+
+
+def _write_wav(voice, text: str, path) -> None:
+    """Synthesise to a wav, keeping every chunk and padding the end.
+
+    Uses the streaming API rather than synthesize_wav: measured on ryan-high,
+    the one-shot call returned a shorter clip than concatenating the chunks
+    itself produces.
+    """
+    chunks = list(voice.synthesize(text))
+    if not chunks:
+        return
+    rate = chunks[0].sample_rate
+    width = chunks[0].sample_width
+    channels = chunks[0].sample_channels
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(channels)
+        handle.setsampwidth(width)
+        handle.setframerate(rate)
+        for chunk in chunks:
+            handle.writeframes(chunk.audio_int16_bytes)
+        pad = int(rate * TAIL_SILENCE_MS / 1000) * width * channels
+        handle.writeframes(b"\x00" * pad)
 
 
 class _Engine:
@@ -343,8 +473,7 @@ class _Engine:
         self._out_index ^= 1
         out = db.default_data_dir() / f"speech{self._out_index}.wav"
         out.parent.mkdir(parents=True, exist_ok=True)
-        with wave.open(str(out), "wb") as handle:
-            loaded.synthesize_wav(text, handle)
+        _write_wav(loaded, text, out)
 
         import winsound
         winsound.PlaySound(str(out), winsound.SND_FILENAME | winsound.SND_ASYNC)

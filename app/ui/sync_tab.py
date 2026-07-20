@@ -32,6 +32,7 @@ def _stamp(ms: int) -> str:
 class SyncTab(QWidget):
     dataChanged = Signal()
     updateAvailable = Signal(bool)
+    voicesChanged = Signal()
     # Emitted from the update worker thread; a queued connection hands the
     # result back to the GUI thread, which is the only one allowed to touch
     # widgets.
@@ -59,8 +60,18 @@ class SyncTab(QWidget):
         inner.setContentsMargins(16, 14, 16, 14)
         inner.setSpacing(14)
 
-        for box in (self._build_update_box(), self._build_voices_box(),
-                    self._build_device_box(), self._build_export_box(),
+        # Update and voices are both short status rows, so they share a line.
+        # Aligned to the top: the two boxes are not the same height, and a
+        # horizontal layout centres them by default, which left the titles on
+        # visibly different lines.
+        top = QHBoxLayout()
+        top.setSpacing(14)
+        for box in (self._build_update_box(), self._build_voices_box()):
+            box.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            top.addWidget(box, 1, Qt.AlignTop)
+        inner.addLayout(top)
+
+        for box in (self._build_device_box(), self._build_export_box(),
                     self._build_import_box(), self._build_extra_box()):
             box.setSizePolicy(box.sizePolicy().horizontalPolicy(),
                               QSizePolicy.Fixed)
@@ -106,25 +117,41 @@ class SyncTab(QWidget):
 
     def _build_voices_box(self) -> QGroupBox:
         self.voices_box_widget = QGroupBox()
-        layout = QHBoxLayout(self.voices_box_widget)
-        layout.setSpacing(8)
+        layout = QVBoxLayout(self.voices_box_widget)
+        layout.setSpacing(9)
 
         self.voices_status = QLabel()
         self.voices_status.setWordWrap(True)
-        layout.addWidget(self.voices_status, 1)
+        layout.addWidget(self.voices_status)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.addStretch(1)
 
         self.voices_get_btn = QPushButton(self.voices_box_widget)
         self.voices_get_btn.setObjectName("primary")
         self.voices_get_btn.clicked.connect(
             lambda: self._download_voices(tts.missing_defaults()))
-        layout.addWidget(self.voices_get_btn)
+        row.addWidget(self.voices_get_btn)
 
         self.voices_extra_btn = QPushButton(self.voices_box_widget)
         self.voices_extra_btn.clicked.connect(
             lambda: self._download_voices(
                 [v for v in tts.VOICES.values() if not v.exists()]))
-        layout.addWidget(self.voices_extra_btn)
+        row.addWidget(self.voices_extra_btn)
+
+        self.voices_settings_btn = QPushButton(self.voices_box_widget)
+        self.voices_settings_btn.clicked.connect(self._open_voice_slots)
+        row.addWidget(self.voices_settings_btn)
+        layout.addLayout(row)
         return self.voices_box_widget
+
+    def _open_voice_slots(self) -> None:
+        from .voice_slots import VoiceSlotsDialog
+        dialog = VoiceSlotsDialog(self)
+        if dialog.exec() == dialog.Accepted:
+            self._refresh_voices()
+            self.voicesChanged.emit()
 
     def _download_voices(self, voices) -> None:
         voices = [v for v in voices if not v.exists()]
@@ -267,6 +294,7 @@ class SyncTab(QWidget):
         self.voices_box_widget.setTitle(t("voices_box"))
         self.voices_get_btn.setText(t("voices_get"))
         self.voices_extra_btn.setText(t("voices_get_extra"))
+        self.voices_settings_btn.setText(t("voices_settings"))
         self._refresh_voices()
         if self._last_check is not None:
             self._render_update(self._last_check)
@@ -532,5 +560,6 @@ class SyncTab(QWidget):
             self.check_update()
         else:
             QMessageBox.critical(self, t("update_failed"), message or "")
+
 
 

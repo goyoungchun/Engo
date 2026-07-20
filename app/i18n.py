@@ -245,7 +245,25 @@ S: dict[str, tuple[str, str]] = {
     "voices_missing": ("음성 파일이 없어 읽어주기를 쓸 수 없습니다",
                        "No voice files, so reading aloud is unavailable"),
     "voices_get": ("음성 내려받기", "Get voices"),
-    "voices_get_extra": ("낮은 톤 음성도 받기", "Also get the lower voices"),
+    "voices_get_extra": ("나머지 음성도 받기", "Get the other voices"),
+    "voices_settings": ("음성 설정", "Voice settings"),
+
+    # -- voice slots ----------------------------------------------------
+    "slots_title": ("음성 4칸 설정", "Voice slots"),
+    "slots_intro": ("칸마다 원하는 음성 파일과 이름을 정할 수 있습니다. "
+                    "여기서 정한 이름이 읽어주기 메뉴에 그대로 나옵니다.",
+                    "Point each slot at whichever voice you like and name it "
+                    "yourself. These names are what the reading menu shows."),
+    "slots_col_name": ("이름", "Name"),
+    "slots_col_model": ("음성 파일", "Voice file"),
+    "slots_col_state": ("상태", "State"),
+    "slots_ready": ("받아둠", "ready"),
+    "slots_not_ready": ("없음", "not downloaded"),
+    "slots_get": ("받기", "Get"),
+    "slots_reset": ("기본값으로", "Restore defaults"),
+    "slots_need_name": ("이름이 비어 있는 칸이 있습니다.", "A slot has no name."),
+    "slots_saved_missing": ("저장했습니다. 아직 받지 않은 음성이 있습니다: {names}",
+                            "Saved. These are not downloaded yet: {names}"),
     "speak_tip": ("영어를 소리로 듣기  (Ctrl+P)", "Hear the English  (Ctrl+P)"),
     "menu_speak": ("현재 항목 읽어주기", "Read the current item"),
     "menu_language": ("언어 / Language", "Language / 언어"),

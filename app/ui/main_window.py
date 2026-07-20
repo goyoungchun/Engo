@@ -96,6 +96,7 @@ class MainWindow(QMainWindow):
         else:
             tab = SyncTab(self.palette)
             tab.updateAvailable.connect(self._on_update_available)
+            tab.voicesChanged.connect(self._rebuild_voice_menu)
         tab.dataChanged.connect(self.refresh_status)
         return tab
 
@@ -300,6 +301,32 @@ class MainWindow(QMainWindow):
             tab.speak_current()
         elif isinstance(tab, ReadingTab):
             tab._speak_selected()
+
+    def _rebuild_voice_menu(self) -> None:
+        """Rebuild after the slots are edited -- names and contents change."""
+        tts.reload_slots()
+        self.voice_menu.clear()
+        self.voice_actions.clear()
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        current = "off" if not tts.enabled() else tts.voice_key()
+        for key in [v.key for v in tts.available_voices()] + ["off"]:
+            action = QAction(self, checkable=True)
+            action.setChecked(key == current)
+            action.triggered.connect(lambda _=False, k=key: self._set_voice(k))
+            group.addAction(action)
+            self.voice_menu.addAction(action)
+            self.voice_actions[key] = action
+            if key == "off":
+                self.voice_menu.insertSeparator(action)
+        self.voice_menu.setEnabled(tts.installed())
+        self.act_speak.setEnabled(tts.installed())
+        for k, action in self.voice_actions.items():
+            action.setText(t("voice_off") if k == "off"
+                           else tts.VOICES[k].label(i18n.language()))
+        for tab in self._built.values():
+            if hasattr(tab, "speak_btn"):
+                tab.speak_btn.setVisible(tts.installed())
 
     def _set_voice(self, key: str) -> None:
         if key == "off":

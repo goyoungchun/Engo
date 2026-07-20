@@ -1,4 +1,4 @@
-"""First-run voice download.
+﻿"""First-run voice download.
 
 The download really runs -- against a real HuggingFace URL -- because the
 parts that break are the ones a stub cannot exercise: a wrong URL, a partial
@@ -50,7 +50,7 @@ def main() -> int:
         check("받아야 할 크기를 알려준다", 100 < size < 200, f"({size:.0f} MB)")
 
         print("\n[실제 내려받기]")
-        voice = tts.VOICES["female_medium"]
+        voice = tts.VOICES["slot1"]
         seen: list[tuple[int, int]] = []
 
         # Fetch only the small .json in full: cancel as soon as the big model
@@ -58,7 +58,7 @@ def main() -> int:
         started_big = {"yes": False}
 
         def should_stop():
-            if (sandbox / f"en_US-{voice.model}-{voice.quality}.onnx.part").exists():
+            if (sandbox / f"{voice.stem}.onnx.part").exists():
                 started_big["yes"] = True
                 return True
             return False
@@ -70,7 +70,7 @@ def main() -> int:
               f"(ok={ok}, {message})")
         check("진행률 보고가 왔다", bool(seen), f"({len(seen)}회)")
 
-        json_file = sandbox / f"en_US-{voice.model}-{voice.quality}.onnx.json"
+        json_file = sandbox / f"{voice.stem}.onnx.json"
         check("설정 파일은 완전히 받아졌다",
               json_file.exists() and json_file.stat().st_size > 1000,
               f"({json_file.stat().st_size if json_file.exists() else 0} bytes)")
@@ -86,8 +86,7 @@ def main() -> int:
               json_file.stat().st_mtime_ns == before)
 
         print("\n[잘못된 주소]")
-        broken = tts.Voice("broken", "female", "nope_does_not_exist", "medium",
-                           "x", "x")
+        broken = tts.Voice("broken", "female", "nope_does_not_exist", "medium", "x", "x")
         ok, message = tts.download([broken])
         check("실패를 예외 없이 알려준다", not ok and bool(message), message[:60])
         check("실패해도 조각을 남기지 않는다", not list(sandbox.glob("*.part")))
@@ -111,3 +110,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

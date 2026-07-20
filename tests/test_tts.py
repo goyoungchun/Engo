@@ -85,8 +85,8 @@ def main() -> int:
         return 1
     print(f"  사용 가능: {', '.join(v.key for v in available)}")
     check("기본값은 켜짐", tts.enabled())
-    check("기본 목소리는 기본 여성", tts.voice_key() == "female_medium",
-          f"({tts.voice_key()})")
+    check("기본 목소리는 1번 칸", tts.voice_key() == "slot1", f"({tts.voice_key()})")
+    check("칸이 4개", len(tts.SLOT_KEYS) == 4)
     check("남녀 각각 최소 하나씩 있음",
           {v.gender for v in available} == {"female", "male"})
 
@@ -103,24 +103,40 @@ def main() -> int:
               default.pitch_hz > lower.pitch_hz)
 
     print("\n[옛 설정값 이전]")
-    db.set_meta("tts_voice", "female")          # pre-rename value
-    check("'female' → female_medium", tts.voice_key() == "female_medium",
-          tts.voice_key())
-    db.set_meta("tts_voice", "male")
-    check("'male' → male_medium", tts.voice_key() == "male_medium", tts.voice_key())
+    for old, expected in (("female", "slot1"), ("male", "slot2"),
+                          ("female_medium", "slot1"), ("male_high", "slot4")):
+        db.set_meta("tts_voice", old)
+        check(f"'{old}' → {expected}", tts.voice_key() == expected,
+              tts.voice_key())
     db.set_meta("tts_voice", "nonsense")
     check("알 수 없는 값이면 기본값으로", tts.voice_key() in tts.VOICES,
           tts.voice_key())
 
-    # Anyone left on the briefly-shipped high default is moved once, but an
-    # explicit later choice must stick.
-    db.set_meta(tts._DEFAULT_FIX, "")
-    db.set_meta("tts_voice", "female_high")
-    check("옛 기본값이던 고음질은 한 번 되돌린다",
-          tts.voice_key() == "female_medium", tts.voice_key())
-    tts.set_voice("female_high")
-    check("직접 고른 값은 그대로 유지된다",
-          tts.voice_key() == "female_high", tts.voice_key())
+    print("\n[칸을 직접 설정하기]")
+    original = tts.VOICES["slot3"]
+    tts.save_slot("slot3", "내 목소리", "amy", "medium", "female")
+    check("이름이 바뀐다", tts.VOICES["slot3"].label("ko") == "내 목소리",
+          tts.VOICES["slot3"].label("ko"))
+    check("모델이 바뀐다", tts.VOICES["slot3"].model == "amy",
+          tts.VOICES["slot3"].model)
+    check("파일 이름도 따라 바뀐다",
+          tts.VOICES["slot3"].stem == "en_US-amy-medium",
+          tts.VOICES["slot3"].stem)
+    check("아직 안 받았으므로 목록에 없다",
+          "slot3" not in {v.key for v in tts.available_voices()})
+
+    tts.save_slot("slot3", "영국 남성", "en_GB-alan", "medium", "male")
+    check("영국 음성도 경로가 맞는다",
+          tts.VOICES["slot3"].stem == "en_GB-alan-medium",
+          tts.VOICES["slot3"].stem)
+    check("내려받기 주소에 en_GB가 들어간다",
+          "/en_GB/" in tts.VOICES["slot3"].url(".onnx"),
+          tts.VOICES["slot3"].url(".onnx"))
+
+    tts.reset_slot("slot3")
+    check("기본값으로 되돌린다", tts.VOICES["slot3"].model == original.model,
+          tts.VOICES["slot3"].model)
+    check("되돌리면 다시 쓸 수 있다", tts.VOICES["slot3"].exists())
 
     print("\n[상태 알림]")
     seen: list[tuple[str, str]] = []
@@ -165,14 +181,43 @@ def main() -> int:
     loaded = rss_mb()
     print(f"\n  모델 로드 후 메모리 {loaded:.0f} MB (기준 {baseline:.0f} MB)")
 
+    # Snapshot now: the truncation checks below load models directly, which
+    # appends more status events and would hide what speaking actually did.
+    speak_states = [state for state, _ in seen]
+    speak_keys = [key for _, key in seen]
+
+    print("\n[끝까지 읽는지 — 잘림 검사]")
+    # ryan-high leaves no trailing silence of its own, so its final consonant
+    # was being clipped and playback stopped mid-sound. Every clip must end
+    # quietly, or the user hears it cut off.
+    import numpy as np
+    for voice in available:
+        engine_voice = tts._engine._load(voice.key)
+        for label, text in (("짧은 문장", "Break the ice."),
+                            ("물음표", "Are you coming with us?"),
+                            ("긴 문장", "Remote work was once a perk. Today it "
+                                      "is a baseline expectation for many "
+                                      "knowledge workers.")):
+            path = Path(_ROOT) / f"cut_{voice.key}.wav"
+            tts._write_wav(engine_voice, text, path)
+            with wave.open(str(path)) as handle:
+                rate, frames = handle.getframerate(), handle.getnframes()
+                raw = handle.readframes(frames)
+            samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            tail = samples[-int(rate * 0.05):]
+            rms = float(np.sqrt((tail ** 2).mean()))
+            check(f"{voice.key} / {label}: 소리 중간에 끊기지 않음", rms < 0.01,
+                  f"(끝 50ms 세기 {rms:.4f})")
+
     print("\n[상태 알림 내용]")
-    states = [s for s, _ in seen]
-    check("음성 불러오는 중 알림이 왔음", "loading" in states, str(set(states)))
-    check("읽는 중 알림이 왔음", "speaking" in states)
-    check("끝나면 idle 로 돌아감", states and states[-1] == "idle",
-          states[-1] if states else "(없음)")
+    check("음성 불러오는 중 알림이 왔음", "loading" in speak_states,
+          str(set(speak_states)))
+    check("읽는 중 알림이 왔음", "speaking" in speak_states)
+    check("읽기가 끝나면 idle 로 돌아감",
+          speak_states and speak_states[-1] == "idle",
+          speak_states[-1] if speak_states else "(없음)")
     check("알림에 어떤 음성인지 담겨 있음",
-          all(key in tts.VOICES for _, key in seen if key))
+          all(key in tts.VOICES for key in speak_keys if key))
     tts.set_status_listener(None)
 
     print("\n[유휴 시 모델 해제]")
