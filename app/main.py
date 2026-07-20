@@ -28,6 +28,7 @@ from .i18n import t                                 # noqa: E402
 from .ui.common import round_menu                   # noqa: E402
 from .ui.main_window import MainWindow              # noqa: E402
 from .ui.sticky import StickyManager                # noqa: E402
+from .ui import voice_setup                         # noqa: E402
 
 APP_ID = "Engo.local.singleinstance"
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -269,6 +270,16 @@ class EngoApp:
             self.window.refresh_status()
 
     # -- lifecycle -------------------------------------------------------
+    def on_voices_ready(self, ok: bool) -> None:
+        """Rebuild the window so the 🔊 buttons appear without a restart."""
+        if not ok or self.window is None:
+            return
+        self.window.prepare_quit()
+        self.window.close()
+        self.window.deleteLater()
+        self.window = None
+        self.show_window()
+
     def handle_second_instance(self) -> None:
         self.show_window()
 
@@ -314,6 +325,13 @@ def main() -> int:
         lambda: (server.nextPendingConnection(), studio.handle_second_instance())
     )
 
+    # First run: the speech models are not in the repository, so offer to
+    # fetch them. Skipped when starting minimised at login -- a download
+    # prompt nobody is looking at helps no one.
+    if "--tray" not in sys.argv and voice_setup.should_offer():
+        QTimer.singleShot(400, lambda: studio.on_voices_ready(
+            voice_setup.offer(studio.window)))
+
     if not QSystemTrayIcon.isSystemTrayAvailable():
         studio.show_window()
     elif "--tray" in sys.argv:
@@ -328,6 +346,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 
 
 

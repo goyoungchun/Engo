@@ -39,39 +39,81 @@ VOICES_DIR = Path(__file__).resolve().parent.parent / "voices"
 class Voice:
     key: str
     gender: str          # "female" | "male"
+    model: str           # piper voice name, e.g. "hfc_female"
     quality: str         # "high" | "medium"
-    filename: str
     name_ko: str
     name_en: str
+    default: bool = False    # downloaded on first run
+    pitch_hz: int = 0        # measured median pitch of a statement
+
+    @property
+    def filename(self) -> str:
+        return f"en_US-{self.model}-{self.quality}.onnx"
 
     @property
     def path(self) -> Path:
         return VOICES_DIR / self.filename
 
     def exists(self) -> bool:
-        return self.path.exists()
+        return self.path.exists() and self.path.with_suffix(".onnx.json").exists()
 
     def label(self, language: str) -> str:
         return self.name_en if language == "en" else self.name_ko
 
+    def url(self, ext: str) -> str:
+        return (f"https://huggingface.co/rhasspy/piper-voices/resolve/main"
+                f"/en/en_US/{self.model}/{self.quality}"
+                f"/en_US-{self.model}-{self.quality}{ext}")
 
+
+# Pitch figures are measured, not guessed -- see the note below. The two
+# "medium" voices are the defaults because they sit higher and lift more
+# clearly at the end of a question; the "high" tier is a bigger model but
+# speaks noticeably lower, which reads as flatter rather than better.
 VOICES: dict[str, Voice] = {
     v.key: v for v in (
-        Voice("female_high", "female", "high", "en_US-lessac-high.onnx",
-              "여성 · 고음질 (Lessac)", "Female · high (Lessac)"),
-        Voice("male_high", "male", "high", "en_US-ryan-high.onnx",
-              "남성 · 고음질 (Ryan)", "Male · high (Ryan)"),
-        Voice("female_medium", "female", "medium", "en_US-hfc_female-medium.onnx",
-              "여성 · 가벼움", "Female · light"),
-        Voice("male_medium", "male", "medium", "en_US-hfc_male-medium.onnx",
-              "남성 · 가벼움", "Male · light"),
+        Voice("female_medium", "female", "hfc_female", "medium",
+              "여성 · 기본", "Female · default", default=True, pitch_hz=251),
+        Voice("male_medium", "male", "hfc_male", "medium",
+              "남성 · 기본", "Male · default", default=True, pitch_hz=167),
+        Voice("female_high", "female", "lessac", "high",
+              "여성 · 낮은 톤 (Lessac)", "Female · lower (Lessac)", pitch_hz=187),
+        Voice("male_high", "male", "ryan", "high",
+              "남성 · 낮은 톤 (Ryan)", "Male · lower (Ryan)", pitch_hz=154),
     )
 }
-DEFAULT_VOICE = "female_high"
+DEFAULT_VOICE = "female_medium"
 
 # Settings written before the high-quality voices existed stored a bare
 # gender; map those onto the new keys instead of silently resetting.
-_LEGACY = {"female": "female_high", "male": "male_high"}
+_LEGACY = {"female": "female_medium", "male": "male_medium"}
+
+# One-time correction: the high-pitched pair briefly shipped as the default,
+# and anyone who never opened the menu is sitting on a choice they did not
+# make. Move only those users, and only once.
+_DEFAULT_FIX = "tts_default_v2"
+
+
+def _apply_default_fix() -> None:
+    if db.get_meta(_DEFAULT_FIX, ""):
+        return
+    db.set_meta(_DEFAULT_FIX, "1")
+    if db.get_meta("tts_voice", "") in ("female_high", "male_high"):
+        db.set_meta("tts_voice", DEFAULT_VOICE)
+
+
+def default_voices() -> list[Voice]:
+    return [v for v in VOICES.values() if v.default]
+
+
+def missing_defaults() -> list[Voice]:
+    """Default voices that still need downloading."""
+    return [v for v in default_voices() if not v.exists()]
+
+
+def download_bytes(voices) -> int:
+    """Rough download size, for telling the user what they are agreeing to."""
+    return sum(115_000_000 if v.quality == "high" else 61_000_000 for v in voices)
 
 # Drop the loaded model after this long without a request.
 IDLE_UNLOAD_SECONDS = 120
@@ -113,6 +155,7 @@ def set_enabled(on: bool) -> None:
 
 
 def voice_key() -> str:
+    _apply_default_fix()
     stored = db.get_meta("tts_voice", DEFAULT_VOICE)
     stored = _LEGACY.get(stored, stored)
     if stored in VOICES and VOICES[stored].exists():
@@ -131,6 +174,62 @@ def set_voice(key: str) -> None:
     if key in VOICES:
         db.set_meta("tts_voice", key)
         _engine.invalidate()
+
+
+def download(voices, progress=None, should_stop=None) -> tuple[bool, str]:
+    """Fetch voice models, reporting progress as (done_bytes, total_bytes, name).
+
+    Each file lands on a .part first and is renamed once complete, so an
+    interrupted download can never leave a truncated model that loads and then
+    crashes. Safe to call from a worker thread; never raises.
+    """
+    import urllib.error
+    import urllib.request
+
+    voices = list(voices)
+    total = download_bytes(voices)
+    done = 0
+    VOICES_DIR.mkdir(parents=True, exist_ok=True)
+
+    for voice in voices:
+        # Config first: it is a few KB, so a wrong name or a dead link fails
+        # in a moment instead of after 60MB.
+        for ext in (".onnx.json", ".onnx"):
+            target = VOICES_DIR / f"en_US-{voice.model}-{voice.quality}{ext}"
+            if target.exists() and target.stat().st_size > 1000:
+                continue
+            part = target.with_suffix(target.suffix + ".part")
+            cancelled = False
+            try:
+                request = urllib.request.Request(
+                    voice.url(ext), headers={"User-Agent": "Engo"})
+                with urllib.request.urlopen(request, timeout=30) as response, \
+                        open(part, "wb") as handle:
+                    while True:
+                        if should_stop is not None and should_stop():
+                            # Only flag it here. Windows refuses to delete a
+                            # file that is still open, so the cleanup has to
+                            # wait until the `with` block has closed it.
+                            cancelled = True
+                            break
+                        chunk = response.read(1 << 16)
+                        if not chunk:
+                            break
+                        handle.write(chunk)
+                        done += len(chunk)
+                        if progress is not None:
+                            progress(done, total, voice.label("ko"))
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                part.unlink(missing_ok=True)
+                return False, str(exc)
+
+            if cancelled:
+                part.unlink(missing_ok=True)
+                return False, "cancelled"
+            part.replace(target)
+    if progress is not None:
+        progress(total, total, "")
+    return True, ""
 
 
 class _Engine:

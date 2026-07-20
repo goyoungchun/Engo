@@ -223,6 +223,29 @@ S: dict[str, tuple[str, str]] = {
     "tts_loading": ("🔊 음성 바꾸는 중… ({voice})", "🔊 Changing voice… ({voice})"),
     "tts_speaking": ("🔊 읽는 중… ({voice})", "🔊 Speaking… ({voice})"),
     "tts_error": ("🔊 음성을 불러오지 못했습니다", "🔊 Could not load the voice"),
+
+    # -- voice download -------------------------------------------------
+    "voices_title": ("읽어주기 음성 내려받기", "Download speech voices"),
+    "voices_ask": ("영어를 소리로 들으려면 음성 파일이 필요합니다. 지금 받을까요? (약 {size} MB)",
+                   "Hearing the English out loud needs voice files. "
+                   "Download them now? (about {size} MB)"),
+    "voices_ask_detail": (
+        "한 번만 받으면 됩니다. 받은 뒤에는 인터넷 없이 동작합니다.\n"
+        "받지 않아도 나머지 기능은 모두 그대로 쓸 수 있고, 🔊 버튼만 숨겨집니다.",
+        "A one-time download; after that it works with no internet.\n"
+        "Everything else works without it — only the 🔊 buttons are hidden."),
+    "voices_download": ("지금 받기", "Download now"),
+    "voices_later": ("나중에", "Later"),
+    "voices_never": ("묻지 않기", "Don't ask again"),
+    "voices_downloading": ("음성 파일을 내려받는 중입니다…", "Downloading voice files…"),
+    "voices_cancelling": ("취소하는 중…", "Cancelling…"),
+    "voices_failed": ("내려받지 못했습니다:\n{err}", "Download failed:\n{err}"),
+    "voices_box": ("읽어주기 음성", "Speech voices"),
+    "voices_ready": ("음성 {n}개 준비됨", "{n} voice(s) ready"),
+    "voices_missing": ("음성 파일이 없어 읽어주기를 쓸 수 없습니다",
+                       "No voice files, so reading aloud is unavailable"),
+    "voices_get": ("음성 내려받기", "Get voices"),
+    "voices_get_extra": ("낮은 톤 음성도 받기", "Also get the lower voices"),
     "speak_tip": ("영어를 소리로 듣기  (Ctrl+P)", "Hear the English  (Ctrl+P)"),
     "menu_speak": ("현재 항목 읽어주기", "Read the current item"),
     "menu_language": ("언어 / Language", "Language / 언어"),

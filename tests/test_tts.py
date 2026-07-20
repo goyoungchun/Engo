@@ -85,20 +85,42 @@ def main() -> int:
         return 1
     print(f"  사용 가능: {', '.join(v.key for v in available)}")
     check("기본값은 켜짐", tts.enabled())
-    check("기본 목소리는 고음질 여성", tts.voice_key() == "female_high",
+    check("기본 목소리는 기본 여성", tts.voice_key() == "female_medium",
           f"({tts.voice_key()})")
     check("남녀 각각 최소 하나씩 있음",
           {v.gender for v in available} == {"female", "male"})
 
+    print("\n[음정: 기본 음성이 더 높게 말한다]")
+    # Measured, not assumed -- the "high" tier is a bigger model but speaks
+    # lower, which is why it is not the default.
+    for gender in ("female", "male"):
+        default = next(v for v in tts.VOICES.values()
+                       if v.gender == gender and v.default)
+        lower = next(v for v in tts.VOICES.values()
+                     if v.gender == gender and not v.default)
+        check(f"{gender}: 기본({default.pitch_hz}Hz)이 "
+              f"낮은 톤({lower.pitch_hz}Hz)보다 높다",
+              default.pitch_hz > lower.pitch_hz)
+
     print("\n[옛 설정값 이전]")
     db.set_meta("tts_voice", "female")          # pre-rename value
-    check("'female' → female_high", tts.voice_key() == "female_high",
+    check("'female' → female_medium", tts.voice_key() == "female_medium",
           tts.voice_key())
     db.set_meta("tts_voice", "male")
-    check("'male' → male_high", tts.voice_key() == "male_high", tts.voice_key())
+    check("'male' → male_medium", tts.voice_key() == "male_medium", tts.voice_key())
     db.set_meta("tts_voice", "nonsense")
     check("알 수 없는 값이면 기본값으로", tts.voice_key() in tts.VOICES,
           tts.voice_key())
+
+    # Anyone left on the briefly-shipped high default is moved once, but an
+    # explicit later choice must stick.
+    db.set_meta(tts._DEFAULT_FIX, "")
+    db.set_meta("tts_voice", "female_high")
+    check("옛 기본값이던 고음질은 한 번 되돌린다",
+          tts.voice_key() == "female_medium", tts.voice_key())
+    tts.set_voice("female_high")
+    check("직접 고른 값은 그대로 유지된다",
+          tts.voice_key() == "female_high", tts.voice_key())
 
     print("\n[상태 알림]")
     seen: list[tuple[str, str]] = []
