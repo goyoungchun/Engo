@@ -352,6 +352,20 @@ S: dict[str, tuple[str, str]] = {
                          "Updated to v{latest}.\n\n"
                          "Restart the program to start using it."),
     "update_whats_new": ("바뀐 점", "What's new"),
+    "update_notes_title": ("업데이트", "Update"),
+    "update_notes_versions": ("v{current}  →  v{latest}",
+                              "v{current}  →  v{latest}"),
+    "update_notes_hint": (
+        "설치하면 프로그램 파일이 새 버전으로 바뀝니다. 학습 데이터와 "
+        "내려받은 음성은 그대로 유지되고, 설치 후 프로그램을 껐다 켜면 "
+        "적용됩니다.",
+        "Installing replaces the program files. Your study data and "
+        "downloaded voices are kept, and the update takes effect the next "
+        "time you start the program."),
+    "update_no_notes": ("이번 릴리스에 적힌 설명이 없습니다.",
+                        "This release has no notes."),
+    "update_now": ("지금 업데이트", "Update now"),
+    "update_later": ("나중에", "Not now"),
     "update_failed": ("업데이트 실패", "Update failed"),
     "log_update": ("업데이트 — {msg}", "Update — {msg}"),
     "open_github": ("GitHub에서 보기", "View on GitHub"),

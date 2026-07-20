@@ -166,10 +166,11 @@ def main() -> int:
               and update._parse(live.latest) >= update._parse(__version__),
               f"(배포={live.latest or '없음'}, 실행={__version__})")
 
-    print("\n[릴리스가 밀려 있지 않은지]")
-    # The failure that started all this: five commits pushed to main with no
-    # release, so the check above passed while nobody received anything.
-    # Pushing is not shipping, and only the commit log can tell.
+    print("\n[아직 배포하지 않은 커밋]")
+    # Informational, not a failure: releases go out when they are asked for,
+    # so commits sitting unreleased on main are the normal state. What this
+    # answers is "would anyone receive what I just wrote?" -- and the answer
+    # being no is a decision, not a bug.
     if not (Path(__file__).resolve().parent.parent / ".git").exists():
         print("  건너뜀: git 체크아웃이 아닙니다")
     else:
@@ -186,11 +187,12 @@ def main() -> int:
             print("  건너뜀: 태그가 없습니다 (git fetch --tags)")
         else:
             _, behind = git("log", "--oneline", f"{tag}..HEAD")
-            pending = [l for l in behind.splitlines() if l.strip()]
-            check("마지막 릴리스 이후 배포되지 않은 커밋이 없다",
-                  not pending,
-                  f"({tag} 이후 {len(pending)}건 — python tools/release.py)"
-                  if pending else f"({tag})")
+            pending = [line for line in behind.splitlines() if line.strip()]
+            if pending:
+                print(f"  안내: {tag} 이후 {len(pending)}건이 아직 배포되지 "
+                      f"않았습니다. 배포하려면 python tools/release.py")
+            else:
+                print(f"  {tag} 까지 모두 배포되었습니다")
 
     print()
     if _failures:

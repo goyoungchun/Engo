@@ -13,14 +13,16 @@ from pathlib import Path
 from PySide6.QtCore import QUrl, Qt, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QGroupBox, QHBoxLayout,
+    QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy,
+    QVBoxLayout, QWidget,
 )
 
 from .. import db, i18n, repo, sync, theme, tts, uninstall, update
 from ..i18n import t
 from . import voice_setup
 from .common import ResponsiveRow, hint_label, scrollable
+from .update_notes import UpdateNotesDialog
 
 
 def _stamp(ms: int) -> str:
@@ -700,6 +702,19 @@ class SyncTab(QWidget):
         """
         if self._installing:
             return
+
+        # Show what this actually changes, and let the answer be no. The
+        # install rewrites the program folder; that is not something to find
+        # out about after the fact.
+        result = self._last_check
+        if result is not None and result.update_available:
+            dialog = UpdateNotesDialog(result.current, result.latest,
+                                       result.notes, self)
+            accepted = dialog.exec() == QDialog.Accepted
+            dialog.deleteLater()
+            if not accepted:
+                return
+
         self._installing = True
         self.update_apply_btn.setEnabled(False)
         self.update_check_btn.setEnabled(False)

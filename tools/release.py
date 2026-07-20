@@ -1,19 +1,20 @@
-"""Publish a release, so other machines can actually receive the update.
+"""Publish a release, when a release is wanted.
 
-The update check in the program reads GitHub *Releases*, not commits. Pushing
-to main therefore changes nothing for anyone who downloaded the program --
-their copy keeps being told it is up to date, which is exactly what happened
-between v1.0.0 and v1.0.1. Publishing is what makes an update real, and it is
-four steps that must all happen, so it lives here as one command instead of
-in someone's memory.
+Run only on request -- pushing to main is deliberately not a release. The
+update check in the program reads GitHub *Releases*, not commits, so work
+sits unpublished until someone decides a version is worth shipping.
 
-    python tools/release.py              # 1.0.1 -> 1.0.2
-    python tools/release.py 1.1.0        # an explicit version
-    python tools/release.py --dry-run    # say what would happen
+    python tools/release.py -n "요약 1" -n "요약 2" -n "요약 3"
+    python tools/release.py 1.1.0 -n "..."     # an explicit version
+    python tools/release.py --dry-run          # say what would happen
 
-It bumps __version__, commits that, tags, pushes, creates the GitHub release,
-and then re-reads the API to confirm an older copy would now be offered the
-update. Needs the `gh` CLI, already used for this repository.
+Notes are three Korean lines describing what changed, because that is what
+the program shows the user before they agree to install. Without -n the
+commit subjects since the last tag are offered as a starting point, and you
+are asked to confirm them.
+
+Bumps __version__, commits, tags, pushes, creates the release, then re-reads
+the API to confirm an older copy would now be offered it. Needs the `gh` CLI.
 """
 
 from __future__ import annotations
@@ -62,19 +63,31 @@ def write_version(version: str) -> None:
     INIT.write_text(text, encoding="utf-8-sig")
 
 
-def notes_since(previous: str) -> str:
-    """Commit subjects since the last tag, as the release body."""
+def commits_since(previous: str) -> list[str]:
+    """Commit subjects since the last tag -- a draft, not the notes."""
     tag = f"v{previous}"
     code = subprocess.run(["git", "rev-parse", tag], cwd=ROOT,
                           capture_output=True).returncode
     span = f"{tag}..HEAD" if code == 0 else "HEAD"
-    lines = run("git", "log", "--no-merges", "--format=- %s", span).splitlines()
-    return "\n".join(lines) or "- 개선 및 수정"
+    out = run("git", "log", "--no-merges", "--format=%s", span)
+    return [line for line in out.splitlines() if line.strip()]
 
 
 def main() -> int:
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    dry = "--dry-run" in sys.argv
+    argv = sys.argv[1:]
+    given_notes: list[str] = []
+    args: list[str] = []
+    index = 0
+    while index < len(argv):
+        item = argv[index]
+        if item in ("-n", "--note") and index + 1 < len(argv):
+            given_notes.append(argv[index + 1])
+            index += 2
+            continue
+        if not item.startswith("--"):
+            args.append(item)
+        index += 1
+    dry = "--dry-run" in argv
 
     previous = current_version()
     version = args[0] if args else bump(previous)
@@ -91,12 +104,29 @@ def main() -> int:
     if run("git", "tag", "-l", tag):
         raise SystemExit(f"{tag} 태그가 이미 있습니다")
 
-    notes = notes_since(previous)
+    if given_notes:
+        lines = given_notes
+    else:
+        # A draft from the commit log. These are English commit subjects
+        # written for the repository, not the three Korean lines the user
+        # reads in the update dialog, so they need replacing before shipping.
+        lines = commits_since(previous)
+        print("\n  -n 이 없어 커밋 제목을 초안으로 씁니다. "
+              "실제 릴리스에는 한글 3줄 요약을 -n 으로 넘기세요:")
+    notes = "\n".join(f"- {line.lstrip('- ')}" for line in lines) or "- 개선 및 수정"
     print(f"  릴리스 노트:\n{notes}")
+    if len(lines) != 3:
+        print(f"  참고: {len(lines)}줄입니다 (3줄 요약을 권장)")
 
     if dry:
         print("\n  (--dry-run: 아무것도 하지 않았습니다)")
         return 0
+
+    if not given_notes:
+        answer = input("\n  이 내용으로 발행할까요? [y/N] ").strip().lower()
+        if answer != "y":
+            print("  취소했습니다.")
+            return 1
 
     write_version(version)
     run("git", "add", str(INIT))
