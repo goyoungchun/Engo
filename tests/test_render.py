@@ -11,6 +11,14 @@ These cannot run under QT_QPA_PLATFORM=offscreen: that platform has no font
 engine here and paints every glyph as the same placeholder box, so both a
 working and a broken control would look identical.
 
+A related trap, for anyone tempted to verify a launcher this way: asking
+Windows to enumerate top-level windows (EnumWindows) from a separate tool
+process is not a test of whether the app's window appeared. A spawned process
+can land on a window station the enumerating process cannot see, and then
+*every* launch looks broken -- python.exe and pythonw.exe alike -- while the
+app itself correctly reports isVisible() == True with a valid winId. Ask the
+application, not the desktop.
+
 Run:  .venv\\Scripts\\python.exe tests\\test_render.py
 """
 

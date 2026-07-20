@@ -40,7 +40,10 @@ TIMEOUT = 10
 # Folders the update must never touch: the user's voices are hundreds of MB
 # and are not in the archive, and the virtualenv is theirs.
 KEEP = {".venv", "venv", "voices", ".git", "__pycache__", "backups",
-        ".update-backup", ".update-staging"}
+        ".update-backup", ".update-staging",
+        # Describes this machine's install, not the release. Replacing it
+        # would make uninstall forget what setup downloaded.
+        "install-manifest.json", "setup.log"}
 
 # state values
 UP_TO_DATE = "up_to_date"

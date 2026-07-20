@@ -229,8 +229,15 @@ def connect() -> sqlite3.Connection:
     if _conn is not None:
         return _conn
 
-    path = db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if _sealed:
+        # Uninstall deleted the data folder. Things still shutting down --
+        # sticky notes saving their position, most of all -- would otherwise
+        # recreate it on the way out. Give them a scratch database that dies
+        # with the process instead of resurrecting what the user just erased.
+        path = ":memory:"
+    else:
+        path = db_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -286,3 +293,13 @@ def close() -> None:
     if _conn is not None:
         _conn.close()
         _conn = None
+
+
+_sealed = False
+
+
+def seal() -> None:
+    """Never touch the data folder again -- uninstall has removed it."""
+    global _sealed
+    _sealed = True
+    close()

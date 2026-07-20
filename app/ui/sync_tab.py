@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from .. import db, repo, sync, theme, tts, update
+from .. import db, i18n, repo, sync, theme, tts, uninstall, update
 from ..i18n import t
 from . import voice_setup
 from .common import ResponsiveRow, hint_label, scrollable
@@ -33,6 +33,7 @@ class SyncTab(QWidget):
     dataChanged = Signal()
     updateAvailable = Signal(bool)
     voicesChanged = Signal()
+    quitRequested = Signal()
     # Emitted from worker threads; a queued connection hands the result back
     # to the GUI thread, which is the only one allowed to touch widgets.
     _update_done = Signal(object)
@@ -89,6 +90,13 @@ class SyncTab(QWidget):
         self.log.setReadOnly(True)
         self.log.setMinimumHeight(120)
         inner.addWidget(self.log)
+
+        # Last, and deliberately below the log: nothing here is reached by
+        # accident on the way to something else.
+        danger = self._build_uninstall_box()
+        danger.setSizePolicy(danger.sizePolicy().horizontalPolicy(),
+                             QSizePolicy.Fixed)
+        inner.addWidget(danger)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -301,6 +309,21 @@ class SyncTab(QWidget):
         layout.addWidget(self.purge_btn)
         return self.extra_box_widget
 
+    def _build_uninstall_box(self) -> QGroupBox:
+        self.uninstall_box_widget = QGroupBox()
+        layout = QHBoxLayout(self.uninstall_box_widget)
+        layout.setSpacing(12)
+
+        self.uninstall_hint = hint_label("")
+        self.uninstall_hint.setWordWrap(True)
+        layout.addWidget(self.uninstall_hint, 1)
+
+        self.uninstall_btn = QPushButton(self.uninstall_box_widget)
+        self.uninstall_btn.setObjectName("danger")
+        self.uninstall_btn.clicked.connect(self.uninstall)
+        layout.addWidget(self.uninstall_btn, 0, Qt.AlignVCenter)
+        return self.uninstall_box_widget
+
     # -- language --------------------------------------------------------
     def retranslate(self) -> None:
         self.update_box_widget.setTitle(t("update_box"))
@@ -346,7 +369,91 @@ class SyncTab(QWidget):
         self.purge_btn.setText(t("purge"))
         self.purge_btn.setToolTip(t("purge_tip"))
         self.log.setPlaceholderText(t("log_placeholder"))
+
+        self.uninstall_box_widget.setTitle(t("uninstall_box"))
+        self.uninstall_hint.setText(t("uninstall_desc"))
+        self.uninstall_btn.setText(t("uninstall_btn"))
         self.reload()
+
+    # -- removing the program --------------------------------------------
+    def uninstall(self) -> None:
+        """Delete Engo's data, and optionally what setup downloaded.
+
+        Two questions, not one. The first is about study data and cannot be
+        undone; the second is about a few hundred megabytes of re-downloadable
+        components, and answering "no" to it is a perfectly good outcome.
+        """
+        lang = i18n.language()
+        data = uninstall.data_targets()
+        parts = uninstall.component_targets()
+
+        if not data and not parts:
+            QMessageBox.information(self, t("uninstall_box"), t("uninstall_nothing"))
+            return
+
+        def listing(targets) -> str:
+            return "\n".join(f"    · {x.label(lang)}   {uninstall.human(x.size)}"
+                             for x in targets)
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(t("uninstall_confirm_title"))
+        box.setText(t("uninstall_confirm_body",
+                      items=listing(data) or "    -"))
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        box.setDefaultButton(QMessageBox.No)     # the safe answer is preselected
+        if box.exec() != QMessageBox.Yes:
+            return
+
+        # Second, separate consent for the downloaded components.
+        remove_parts = False
+        if parts:
+            kept = uninstall.kept_packages()
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle(t("uninstall_parts_title"))
+            box.setText(t("uninstall_parts_body", items=listing(parts),
+                          kept=t("uninstall_kept",
+                                 items="\n".join(f"    · {k}" for k in kept))
+                          if kept else ""))
+            box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            box.setDefaultButton(QMessageBox.No)
+            remove_parts = box.exec() == QMessageBox.Yes
+
+        targets = list(data) + (parts if remove_parts else [])
+
+        uninstall.remove_autostart()
+        uninstall.close_everything()          # release the db and speech files
+        done, failed = uninstall.remove(targets)
+        deferred = uninstall.schedule_deferred(targets)
+        if remove_parts:
+            # Only once the downloaded components are gone. If they were kept,
+            # the record of what we downloaded has to survive with them --
+            # relaunching still works, and a later removal needs to know.
+            uninstall.drop_manifest()
+
+        message = t("uninstall_done_body",
+                    items="\n".join(f"    · {x.label(lang)}" for x in done) or "    -")
+        if failed:
+            message += t("uninstall_failed",
+                         items="\n".join(f"    · {x.label(lang)} — {why}"
+                                         for x, why in failed))
+        if deferred:
+            message += t("uninstall_deferred")
+        message += t("uninstall_folder", path=uninstall.PROJECT_DIR)
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle(t("uninstall_done_title"))
+        box.setText(message)
+        open_btn = box.addButton(t("uninstall_open_folder"), QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Ok)
+        box.exec()
+        if box.clickedButton() is open_btn:
+            uninstall.open_folder(uninstall.PROJECT_DIR)
+
+        # The database is gone; there is nothing left for the app to run on.
+        self.quitRequested.emit()
 
     def restyle(self, p: theme.Palette) -> None:
         self.palette = p

@@ -365,6 +365,50 @@ S: dict[str, tuple[str, str]] = {
     "purge_tip": ("180일보다 오래된 삭제 기록을 완전히 지우고 파일 크기를 줄입니다",
                   "Erase deletion records older than 180 days and shrink the file"),
     "log_placeholder": ("작업 결과가 여기에 표시됩니다.", "Results will appear here."),
+
+    # -- removing the program ------------------------------------------
+    "uninstall_box": ("프로그램 삭제", "Remove Engo"),
+    "uninstall_desc": (
+        "이 컴퓨터에서 Engo가 만든 학습 데이터와, 설치할 때 새로 내려받은 "
+        "구성 요소를 지웁니다. 원래 이 컴퓨터에 있던 것은 건드리지 않습니다.",
+        "Deletes the study data Engo created and the components setup "
+        "downloaded. Anything that was already on this computer is left alone."),
+    "uninstall_btn": ("모든 데이터 및 프로그램 삭제", "Delete all data and remove Engo"),
+    "uninstall_confirm_title": ("정말 삭제할까요?", "Delete everything?"),
+    "uninstall_confirm_body": (
+        "이 컴퓨터에서 Engo의 학습 데이터를 모두 지웁니다.\n\n{items}\n\n"
+        "지우면 되돌릴 수 없습니다. 남겨두고 싶다면 먼저 '내보내기'로 "
+        "저장하세요.\n\n정말 삭제할까요?",
+        "This deletes all of Engo's study data on this computer.\n\n{items}\n\n"
+        "It cannot be undone. If you want to keep it, export a file "
+        "first.\n\nDelete it anyway?"),
+    "uninstall_parts_title": ("내려받은 구성 요소도 지울까요?",
+                              "Remove the downloaded components too?"),
+    "uninstall_parts_body": (
+        "설치할 때 이 컴퓨터에 없어서 새로 내려받은 것들입니다.\n\n{items}\n"
+        "{kept}\n남겨두면 나중에 다시 설치할 때 내려받지 않아도 됩니다.\n\n"
+        "함께 지울까요?",
+        "These were downloaded during setup because they were missing.\n\n"
+        "{items}\n{kept}\nKeeping them saves the download if you reinstall "
+        "later.\n\nRemove them as well?"),
+    "uninstall_kept": ("\n원래 있던 것이라 지우지 않습니다:\n{items}\n",
+                       "\nAlready on this computer, so left in place:\n{items}\n"),
+    "uninstall_done_title": ("삭제했습니다", "Removed"),
+    "uninstall_done_body": ("지운 항목:\n{items}\n", "Deleted:\n{items}\n"),
+    "uninstall_deferred": (
+        "\n가상환경(.venv)은 지금 실행 중이라, 프로그램이 완전히 닫힌 뒤에 "
+        "자동으로 지워집니다.\n",
+        "\nThe virtual environment is in use right now, so it is removed "
+        "automatically once the program has closed.\n"),
+    "uninstall_folder": (
+        "\n마지막으로 프로그램 폴더는 직접 지워 주세요:\n{path}\n\n"
+        "'확인'을 누르면 Engo가 종료됩니다.",
+        "\nFinally, delete the program folder yourself:\n{path}\n\n"
+        "Engo closes when you press OK."),
+    "uninstall_open_folder": ("폴더 열기", "Open folder"),
+    "uninstall_failed": ("\n지우지 못한 항목:\n{items}\n",
+                         "\nCould not delete:\n{items}\n"),
+    "uninstall_nothing": ("지울 데이터가 없습니다.", "There is no data to delete."),
     "export_dialog": ("학습 데이터 내보내기", "Export study data"),
     "export_failed": ("내보내기 실패", "Export failed"),
     "export_done": ("내보내기 완료", "Export finished"),

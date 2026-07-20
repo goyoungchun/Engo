@@ -27,3 +27,8 @@ desktop.ini
 # self-update working folders
 .update-backup/
 .update-staging/
+
+# setup / uninstall bookkeeping (per-machine, never committed)
+install-manifest.json
+setup.log
+engo-cleanup.bat

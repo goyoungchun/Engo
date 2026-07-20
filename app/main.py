@@ -245,6 +245,7 @@ class EngoApp:
             self.window.themeChanged.connect(self.set_theme)
             self.window.languageChanged.connect(self.set_language)
             self.window.closedToTray.connect(self._on_window_closed)
+            self.window.quitRequested.connect(self.quit)
         self.window.show()
         self.window.setWindowState(
             self.window.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)

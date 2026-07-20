@@ -32,6 +32,7 @@ class MainWindow(QMainWindow):
     languageChanged = Signal(str)
     ttsStatus = Signal(str, str)         # state, voice key
     closedToTray = Signal()
+    quitRequested = Signal()             # the data tab removed the program
 
     def __init__(self, palette: theme.Palette, sticky_count):
         super().__init__()
@@ -107,6 +108,7 @@ class MainWindow(QMainWindow):
             tab = SyncTab(self.palette)
             tab.updateAvailable.connect(self._on_update_available)
             tab.voicesChanged.connect(self._rebuild_voice_menu)
+            tab.quitRequested.connect(self.quitRequested)
         tab.dataChanged.connect(self.refresh_status)
         return tab
 
