@@ -23,3 +23,7 @@ backups/
 .idea/
 Thumbs.db
 desktop.ini
+
+# self-update working folders
+.update-backup/
+.update-staging/

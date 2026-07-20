@@ -374,6 +374,16 @@ S: dict[str, tuple[str, str]] = {
                          "Copy it to the other device and merge it there."),
     "import_dialog": ("가져올 파일 선택", "Choose a file to import"),
     "unreadable": ("읽을 수 없는 파일", "Cannot read this file"),
+    "not_engo_file": ("이 파일은 Engo 내보내기 파일이 아닙니다.",
+                      "This is not an Engo export file."),
+    "file_from_future": ("더 새로운 버전에서 만든 파일입니다. 프로그램을 먼저 업데이트하세요.",
+                         "This file was made by a newer version. Update the program first."),
+    "file_too_large": ("파일이 비정상적으로 큽니다. Engo 내보내기 파일이 맞는지 확인하세요.",
+                       "This file is abnormally large. Check that it is really an Engo export."),
+    "unexpected_error": ("예상하지 못한 문제가 생겨 마지막 동작이 완료되지 않았습니다.\n\n"
+                         "자세한 내용이 기록되었습니다:\n{path}",
+                         "Something unexpected went wrong and the last action "
+                         "did not finish.\n\nDetails were written to:\n{path}"),
     "import_failed": ("가져오기 실패", "Import failed"),
     "merge_preview": ("병합 미리보기", "Merge preview"),
     "merge_done": ("합치기 완료", "Merge finished"),
@@ -424,6 +434,32 @@ S: dict[str, tuple[str, str]] = {
     "rp_deleted": ("삭제 반영: {n}건", "Deletions applied: {n}"),
     "rp_unknown": ("알 수 없음", "unknown"),
 }
+
+
+_qt_translator = None
+
+
+def install_qt_translator(app) -> None:
+    """Localise Qt's own stock buttons (Yes / No / OK / Cancel …).
+
+    Every string WE write goes through t(), but QMessageBox and QFileDialog
+    render their standard buttons from Qt's catalogue -- without this a
+    Korean user confirms deletions on an English "Yes/No". PySide6 ships the
+    .qm files, so this is a load, not a translation effort.
+    """
+    global _qt_translator
+    from PySide6.QtCore import QLibraryInfo, QTranslator
+
+    if _qt_translator is not None:
+        app.removeTranslator(_qt_translator)
+        _qt_translator = None
+    if _current == "en":
+        return          # Qt's built-in strings are already English
+    translator = QTranslator(app)
+    path = QLibraryInfo.path(QLibraryInfo.TranslationsPath)
+    if translator.load(f"qtbase_{_current}", path):
+        app.installTranslator(translator)
+        _qt_translator = translator
 
 
 def language() -> str:

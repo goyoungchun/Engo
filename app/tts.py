@@ -168,9 +168,16 @@ VOICES: dict[str, Voice] = dict(FACTORY_SLOTS)
 
 
 def _refresh_voices() -> None:
-    """Re-read slot definitions from the database into VOICES."""
-    VOICES.clear()
-    VOICES.update(_load_slots())
+    """Re-read slot definitions from the database into VOICES.
+
+    Update-then-prune rather than clear-then-update: the speech worker reads
+    VOICES concurrently, and a clear() would open a window where a key it is
+    about to look up does not exist.
+    """
+    fresh = _load_slots()
+    VOICES.update(fresh)
+    for stale in [k for k in VOICES if k not in fresh]:
+        del VOICES[stale]
 
 
 def reload_slots() -> None:
@@ -295,12 +302,21 @@ def set_voice(key: str) -> None:
         _engine.invalidate()
 
 
+# Serialises downloads: the first-run dialog, the Data-tab button and the
+# slot editor can all start one, and two writers on the same .part file would
+# interleave into a corrupt model that passes the size check forever.
+_download_lock = threading.Lock()
+
+
 def download(voices, progress=None, should_stop=None) -> tuple[bool, str]:
     """Fetch voice models, reporting progress as (done_bytes, total_bytes, name).
 
     Each file lands on a .part first and is renamed once complete, so an
     interrupted download can never leave a truncated model that loads and then
-    crashes. Safe to call from a worker thread; never raises.
+    crashes. Serialised by a module lock (see above). Safe to call from a
+    worker thread; never raises -- the outer except is what makes that
+    promise true even for the rename and for a progress callback that blows
+    up because its widget was destroyed.
     """
     import urllib.error
     import urllib.request
@@ -308,47 +324,51 @@ def download(voices, progress=None, should_stop=None) -> tuple[bool, str]:
     voices = list(voices)
     total = download_bytes(voices)
     done = 0
-    VOICES_DIR.mkdir(parents=True, exist_ok=True)
 
-    for voice in voices:
-        # Config first: it is a few KB, so a wrong name or a dead link fails
-        # in a moment instead of after 60MB.
-        for ext in (".onnx.json", ".onnx"):
-            target = VOICES_DIR / f"{voice.stem}{ext}"
-            if target.exists() and target.stat().st_size > 1000:
-                continue
-            part = target.with_suffix(target.suffix + ".part")
-            cancelled = False
-            try:
-                request = urllib.request.Request(
-                    voice.url(ext), headers={"User-Agent": "Engo"})
-                with urllib.request.urlopen(request, timeout=30) as response, \
-                        open(part, "wb") as handle:
-                    while True:
-                        if should_stop is not None and should_stop():
-                            # Only flag it here. Windows refuses to delete a
-                            # file that is still open, so the cleanup has to
-                            # wait until the `with` block has closed it.
-                            cancelled = True
-                            break
-                        chunk = response.read(1 << 16)
-                        if not chunk:
-                            break
-                        handle.write(chunk)
-                        done += len(chunk)
-                        if progress is not None:
-                            progress(done, total, voice.label("ko"))
-            except (urllib.error.URLError, TimeoutError, OSError) as exc:
-                part.unlink(missing_ok=True)
-                return False, str(exc)
+    with _download_lock:
+        try:
+            VOICES_DIR.mkdir(parents=True, exist_ok=True)
+            for voice in voices:
+                # Config first: it is a few KB, so a wrong name or a dead
+                # link fails in a moment instead of after 60MB.
+                for ext in (".onnx.json", ".onnx"):
+                    target = VOICES_DIR / f"{voice.stem}{ext}"
+                    if target.exists() and target.stat().st_size > 1000:
+                        continue
+                    part = target.with_suffix(target.suffix + ".part")
+                    cancelled = False
+                    try:
+                        request = urllib.request.Request(
+                            voice.url(ext), headers={"User-Agent": "Engo"})
+                        with urllib.request.urlopen(request, timeout=30) \
+                                as response, open(part, "wb") as handle:
+                            while True:
+                                if should_stop is not None and should_stop():
+                                    # Only flag it here. Windows refuses to
+                                    # delete an open file, so cleanup must
+                                    # wait until the handle is closed.
+                                    cancelled = True
+                                    break
+                                chunk = response.read(1 << 16)
+                                if not chunk:
+                                    break
+                                handle.write(chunk)
+                                done += len(chunk)
+                                if progress is not None:
+                                    progress(done, total, voice.label("ko"))
+                    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                        part.unlink(missing_ok=True)
+                        return False, str(exc)
 
-            if cancelled:
-                part.unlink(missing_ok=True)
-                return False, "cancelled"
-            part.replace(target)
-    if progress is not None:
-        progress(total, total, "")
-    return True, ""
+                    if cancelled:
+                        part.unlink(missing_ok=True)
+                        return False, "cancelled"
+                    part.replace(target)
+            if progress is not None:
+                progress(total, total, "")
+            return True, ""
+        except Exception as exc:            # noqa: BLE001 -- the no-raise contract
+            return False, str(exc)
 
 
 # Silence appended after every clip. Measured trailing silence straight out of

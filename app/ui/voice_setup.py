@@ -44,6 +44,7 @@ class DownloadDialog(QDialog):
         super().__init__(parent)
         self.voices = list(voices)
         self._stop = False
+        self._thread = None
         self.ok = False
 
         self.setWindowTitle(t("voices_title"))
@@ -74,18 +75,45 @@ class DownloadDialog(QDialog):
         self._finished.connect(self._on_finished)
 
     def start(self) -> None:
+        def report(done, total, name):
+            try:
+                self._progress.emit(done, total, name)
+            except RuntimeError:
+                pass          # dialog destroyed; download() will stop via _stop
+
         def work():
             ok, message = tts.download(
-                self.voices,
-                progress=lambda done, total, name: self._progress.emit(done, total, name),
-                should_stop=lambda: self._stop)
-            self._finished.emit(ok, message)
+                self.voices, progress=report, should_stop=lambda: self._stop)
+            try:
+                self._finished.emit(ok, message)
+            except RuntimeError:
+                pass
 
-        threading.Thread(target=work, daemon=True, name="voice-download").start()
+        self._thread = threading.Thread(target=work, daemon=True,
+                                        name="voice-download")
+        self._thread.start()
 
     def _cancel(self) -> None:
         self._stop = True
         self.detail.setText(t("voices_cancelling"))
+
+    def reject(self) -> None:
+        """Every way out -- Cancel button, Esc, the title-bar ✕ -- must stop
+        the worker. Before this override, Esc closed the dialog while the
+        thread kept downloading; a second attempt then had two writers on the
+        same .part file, interleaving them into a corrupt model.
+        """
+        if self._thread is not None and self._thread.is_alive():
+            self._cancel()
+            return          # stay open; _on_finished closes us
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            self._cancel()
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def _on_progress(self, done: int, total: int, name: str) -> None:
         self.bar.setValue(int(done * 100 / total) if total else 0)
@@ -94,10 +122,11 @@ class DownloadDialog(QDialog):
 
     def _on_finished(self, ok: bool, message: str) -> None:
         self.ok = ok
+        self._thread = None      # lets reject()/closeEvent() actually close
         if not ok and message != "cancelled":
             QMessageBox.warning(self, t("voices_title"),
                                 t("voices_failed", err=message))
-        self.accept() if ok else self.reject()
+        self.accept() if ok else super().reject()
 
 
 def offer(parent=None) -> bool:

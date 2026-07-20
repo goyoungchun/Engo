@@ -161,6 +161,7 @@ class ReadingTab(QWidget):
         # Parent given at construction -- see the note in entry_tab.py: a
         # parentless widget made visible becomes its own top-level window.
         self.speak_btn = QPushButton("🔊", self.right_card)
+        self.speak_btn.setObjectName("speak")
         self.speak_btn.setFixedWidth(46)
         self.speak_btn.clicked.connect(self._speak_selected)
         self.speak_btn.setVisible(tts.installed())
@@ -206,6 +207,9 @@ class ReadingTab(QWidget):
         self.palette = p
         self.left_card.restyle(p)
         self.right_card.restyle(p)
+        # reload() repaints the passage list too -- its "completed" entries
+        # carry the success colour of whatever palette painted them last.
+        self.reload()
         if self._passage_id:
             self._show_lines(repo.passage_lines(self._passage_id))
 
@@ -387,7 +391,7 @@ class ReadingTab(QWidget):
         if dialog.exec() != QDialog.Accepted:
             return
         title, text, tags = dialog.values()
-        repo.save_row("passages", {"title": title, "tags": tags},
+        repo.save_row("passages", {"title": title or t("untitled"), "tags": tags},
                       row_id=self._passage_id)
         repo.resplit_passage(self._passage_id, text)
         self.reload()
@@ -398,12 +402,15 @@ class ReadingTab(QWidget):
         if not rows:
             QMessageBox.information(self, t("no_selection"), t("no_selection_body"))
             return
+        sent = 0
         for row in rows:
             english = (self.table.item(row, COL_EN) or QTableWidgetItem()).text()
             korean = (self.table.item(row, COL_TRANS) or QTableWidgetItem()).text()
             if english.strip():
                 self.sendToSentences.emit(english, korean)
-        QMessageBox.information(self, t("added"), t("added_body", n=len(rows)))
+                sent += 1
+        # Count what was actually sent -- rows with no English are skipped.
+        QMessageBox.information(self, t("added"), t("added_body", n=sent))
 
     def _speak_selected(self) -> None:
         """Read the chosen sentences; with nothing chosen, read the passage."""
@@ -417,4 +424,5 @@ class ReadingTab(QWidget):
     def flush(self) -> None:
         if self.table.state() == QAbstractItemView.EditingState:
             self.table.closePersistentEditor(self.table.currentItem())
+
 

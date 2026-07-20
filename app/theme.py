@@ -292,6 +292,10 @@ QPushButton#ghost {{
     background: transparent; border: none; color: {p.text_muted};
 }}
 QPushButton#ghost:hover {{ background: {p.primary_soft}; color: {p.text}; }}
+/* Speak buttons are fixed at 46px wide; the global 16px side padding would
+   leave the 🔊 glyph ~12px of content box and clip it at some DPI/font
+   combinations. */
+QPushButton#speak {{ padding: 8px 0; min-width: 0; }}
 
 /* ---- misc ------------------------------------------------------------ */
 QGroupBox {{

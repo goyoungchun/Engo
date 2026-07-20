@@ -33,18 +33,20 @@ class SyncTab(QWidget):
     dataChanged = Signal()
     updateAvailable = Signal(bool)
     voicesChanged = Signal()
-    # Emitted from the update worker thread; a queued connection hands the
-    # result back to the GUI thread, which is the only one allowed to touch
-    # widgets.
+    # Emitted from worker threads; a queued connection hands the result back
+    # to the GUI thread, which is the only one allowed to touch widgets.
     _update_done = Signal(object)
+    _install_done = Signal(bool, str)
 
     def __init__(self, palette: theme.Palette, parent=None):
         super().__init__(parent)
         self.palette = palette
         self._checking = False
+        self._installing = False
         self._last_check = None
         self._build()
         self._update_done.connect(self._on_update_checked)
+        self._install_done.connect(self._on_install_done)
         self.retranslate()
         self.reload()
         # Checked when this tab is first built rather than at start-up: the
@@ -155,9 +157,11 @@ class SyncTab(QWidget):
     def _open_voice_slots(self) -> None:
         from .voice_slots import VoiceSlotsDialog
         dialog = VoiceSlotsDialog(self)
-        if dialog.exec() == dialog.Accepted:
-            self._refresh_voices()
-            self.voicesChanged.emit()
+        dialog.exec()
+        # Refresh regardless of how the dialog closed: a voice downloaded via
+        # a slot's 받기 button exists on disk even if the user then cancels.
+        self._refresh_voices()
+        self.voicesChanged.emit()
 
     def _download_voices(self, voices) -> None:
         voices = [v for v in voices if not v.exists()]
@@ -168,6 +172,10 @@ class SyncTab(QWidget):
         dialog.start()
         dialog.exec()
         self._refresh_voices()
+        # Without this the 🔊 buttons and the reading menu stayed hidden
+        # until the program was restarted -- the download changed the disk
+        # but nothing told the main window about it.
+        self.voicesChanged.emit()
         if dialog.ok:
             QMessageBox.information(self, t("voices_title"),
                                     t("voices_ready", n=len(tts.available_voices())))
@@ -198,6 +206,9 @@ class SyncTab(QWidget):
         layout.addWidget(self.device_name)
 
         self.device_info = hint_label()
+        # The path can be longer than the window at minimum width; without
+        # wrapping it is silently clipped (the page never scrolls sideways).
+        self.device_info.setWordWrap(True)
         layout.addWidget(self.device_info, 1)
         return self.device_box
 
@@ -296,6 +307,10 @@ class SyncTab(QWidget):
         self.update_check_btn.setText(t("update_check"))
         self.update_apply_btn.setText(t("update_apply"))
         self.update_link_btn.setText(t("open_github"))
+        if self._last_check is None and self._checking:
+            # A language switch mid-check would otherwise leave the previous
+            # language's "checking…" on screen until the check finishes.
+            self.update_status.setText(t("update_checking"))
 
         self.voices_box_widget.setTitle(t("voices_box"))
         self.voices_get_btn.setText(t("voices_get"))
@@ -452,7 +467,14 @@ class SyncTab(QWidget):
             self, t("export_csv"), str(default), t("filter_csv"))
         if not path:
             return
-        count = sync.export_csv(table, path)
+        try:
+            count = sync.export_csv(table, path)
+        except OSError as exc:
+            # The classic case: the same CSV is open in Excel, which holds it
+            # locked. Without this the failure was completely silent under
+            # pythonw -- no dialog, no file, no log line.
+            QMessageBox.critical(self, t("export_failed"), str(exc))
+            return
         self._log(t("log_csv_out", n=count, path=path))
         QMessageBox.information(self, t("done"), t("csv_done", n=count))
 
@@ -492,7 +514,13 @@ class SyncTab(QWidget):
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if answer != QMessageBox.Yes:
             return
-        count = repo.purge_tombstones()
+        try:
+            # VACUUM needs free disk roughly the size of the database and
+            # raises when it cannot get it.
+            count = repo.purge_tombstones()
+        except Exception as exc:
+            QMessageBox.critical(self, t("purge"), str(exc))
+            return
         self._log(t("log_purge", n=count))
         self.reload()
 
@@ -511,7 +539,12 @@ class SyncTab(QWidget):
 
         def work():
             result = update.check()
-            self._update_done.emit(result)
+            try:
+                self._update_done.emit(result)
+            except RuntimeError:
+                # The tab was destroyed (window closed to tray) while the
+                # network call was in flight. Nobody is left to tell.
+                pass
 
         threading.Thread(target=work, daemon=True, name="update-check").start()
 
@@ -540,18 +573,38 @@ class SyncTab(QWidget):
         self.update_link_btn.setVisible(result.state != update.UP_TO_DATE)
 
     def apply_update(self) -> None:
-        if update.has_local_changes():
-            QMessageBox.warning(self, t("update_failed"), t("update_dirty"))
+        """Download and install the newest release, off the GUI thread.
+
+        The archive download can take arbitrarily long on a slow connection,
+        so running install() inline would freeze the window for the duration.
+        """
+        if self._installing:
             return
-
-        latest = (self._last_check.latest if self._last_check else "").lstrip("v")
+        self._installing = True
         self.update_apply_btn.setEnabled(False)
+        self.update_check_btn.setEnabled(False)
         self.update_status.setText(t("update_downloading"))
-        QApplication.processEvents()
 
-        ok, message = update.install()
+        def work():
+            # has_local_changes shells out to git; on a cold or broken repo
+            # that can stall for seconds, so it belongs off the GUI thread
+            # with the rest of the work.
+            if update.has_local_changes():
+                ok, message = False, "local changes"
+            else:
+                ok, message = update.install()
+            try:
+                self._install_done.emit(ok, message)
+            except RuntimeError:
+                pass          # tab destroyed while downloading
 
+        threading.Thread(target=work, daemon=True, name="update-install").start()
+
+    def _on_install_done(self, ok: bool, message: str) -> None:
+        self._installing = False
+        latest = (self._last_check.latest if self._last_check else "").lstrip("v")
         self.update_apply_btn.setEnabled(True)
+        self.update_check_btn.setEnabled(True)
         self._log(t("log_update",
                     msg=(message.splitlines()[-1] if message else "ok")))
         if ok:

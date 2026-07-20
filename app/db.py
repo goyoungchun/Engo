@@ -137,9 +137,54 @@ CREATE INDEX IF NOT EXISTS ix_line_updated ON passage_lines(updated_at);
 """
 
 
+# Highest updated_at this database has ever seen -- local or imported.
+# Guarded by the GIL-atomicity of int assignment plus GUI-thread-only writes.
+_clock_floor = 0
+
+
 def now_ms() -> int:
-    """Epoch milliseconds UTC -- the single time base for merge ordering."""
-    return int(time.time() * 1000)
+    """Epoch milliseconds, made monotone against everything already seen.
+
+    Plain wall time is not enough for last-writer-wins: if another device's
+    clock runs fast, every row it exports carries a future timestamp, and
+    edits made *afterwards* on a correct clock would silently lose the merge
+    until real time catches up. Taking max(wall, seen+1) — a Lamport clock
+    floored to wall time — guarantees that a local edit always outranks any
+    row this database has already merged, whatever the clocks did.
+    """
+    global _clock_floor
+    stamp = max(int(time.time() * 1000), _clock_floor + 1)
+    _clock_floor = stamp
+    return stamp
+
+
+def observe_timestamp(ms: int) -> None:
+    """Feed an imported row's updated_at into the clock floor."""
+    global _clock_floor
+    if ms > _clock_floor:
+        _clock_floor = ms
+
+
+class transaction:
+    """`with db.transaction():` -- BEGIN/COMMIT with rollback on error.
+
+    With isolation_level=None only single statements are atomic; every
+    multi-statement write path must run inside one of these, or a crash can
+    leave it half-applied. Nested use is a no-op (SQLite has no nested BEGIN).
+    """
+
+    def __enter__(self):
+        conn = connect()
+        self._own = not conn.in_transaction
+        if self._own:
+            conn.execute("BEGIN")
+        return conn
+
+    def __exit__(self, exc_type, exc, tb):
+        conn = connect()
+        if self._own and conn.in_transaction:
+            conn.execute("ROLLBACK" if exc_type else "COMMIT")
+        return False
 
 
 def new_id() -> str:
@@ -200,7 +245,16 @@ def connect() -> sqlite3.Connection:
 
     _set_meta_default(conn, "schema_version", str(SCHEMA_VERSION))
     _set_meta_default(conn, "device_id", uuid.uuid4().hex[:12])
-    _set_meta_default(conn, "device_name", os.environ.get("COMPUTERNAME", "이 기기"))
+    _set_meta_default(conn, "device_name", os.environ.get("COMPUTERNAME", "PC"))
+
+    # Seed the merge clock with the newest stamp already in this database, so
+    # monotonicity survives restarts (see now_ms).
+    global _clock_floor
+    for table in ("expressions", "sentences", "grammar",
+                  "passages", "passage_lines"):
+        row = conn.execute(f"SELECT MAX(updated_at) AS m FROM {table}").fetchone()
+        if row["m"] and row["m"] > _clock_floor:
+            _clock_floor = row["m"]
 
     _conn = conn
     return conn

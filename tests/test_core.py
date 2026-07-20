@@ -221,6 +221,90 @@ def test_passage_lines_merge() -> None:
           [line["translation"] for line in merged], ["첫 번째", "두 번째"])
 
 
+def test_incremental_lines_before_passage() -> None:
+    """Out-of-order import: lines arriving before their passage must survive.
+
+    An earlier version tombstoned 'orphan' lines with a fresh timestamp,
+    which beat the real rows when the passage finally arrived -- silently
+    deleting translations on every device.
+    """
+    print("\n[지문보다 해석이 먼저 도착]")
+    use_device("OO_A")
+    pid = repo.create_passage("ordered", "First one. Second one.")
+    lines = repo.passage_lines(pid)
+    full = _ROOT / "oo_full.seb"
+    sync.export_to_file(full)
+
+    time.sleep(0.01)
+    mark = db.now_ms() + 1
+    time.sleep(0.01)
+    repo.save_row("passage_lines", {"translation": "첫 번째"},
+                  row_id=lines[0]["id"])
+    partial = _ROOT / "oo_partial.seb"
+    sync.export_to_file(partial, since_ms=mark)
+
+    use_device("OO_B")
+    # The wrong order: the incremental (lines only) lands first.
+    sync.import_file(partial)
+    sync.import_file(full)
+    merged = repo.passage_lines(pid)
+    check("두 문장이 모두 살아 있음", len(merged), 2)
+    check("먼저 도착한 해석이 유지됨", merged[0]["translation"], "첫 번째")
+
+
+def test_duplicate_ids_in_file() -> None:
+    """A hand-concatenated export with the same id twice must still import."""
+    print("\n[한 파일에 같은 id가 두 번]")
+    use_device("DUP_SRC")
+    rid = repo.save_row("expressions", {"english": "dup", "korean": "처음"})
+    exported = _ROOT / "dup.json"
+    sync.export_to_file(exported)
+
+    import json
+    payload = json.loads(exported.read_text(encoding="utf-8"))
+    block = payload["tables"]["expressions"]
+    older = list(block["rows"][0])
+    ts_index = block["columns"].index("updated_at")
+    ko_index = block["columns"].index("korean")
+    older[ts_index] -= 1000
+    older[ko_index] = "낡은 사본"
+    block["rows"].append(older)          # duplicate id, older stamp
+    exported.write_text(json.dumps(payload, ensure_ascii=False),
+                        encoding="utf-8")
+
+    use_device("DUP_DST")
+    report = sync.import_file(exported)
+    check("가져오기가 실패하지 않음", report.total_added, 1)
+    check("최신 사본이 이김", repo.get_row("expressions", rid)["korean"], "처음")
+
+
+def test_clock_skew() -> None:
+    """A fast remote clock must not outrank later local edits."""
+    print("\n[상대 기기 시계가 빠른 경우]")
+    use_device("SKEW_FAST")
+    rid = repo.save_row("expressions", {"english": "clock", "korean": "빠른 기기"})
+    # Push the row's stamp a full hour into the future.
+    db.connect().execute(
+        "UPDATE expressions SET updated_at = updated_at + 3600000 WHERE id = ?",
+        (rid,))
+    fast = _ROOT / "fast.seb"
+    sync.export_to_file(fast)
+
+    use_device("SKEW_SLOW")
+    sync.import_file(fast)
+    check("미래 타임스탬프 항목을 받음",
+          repo.get_row("expressions", rid)["korean"], "빠른 기기")
+    # An edit made NOW, after seeing the future stamp, must still win.
+    repo.save_row("expressions", {"korean": "느린 기기의 나중 수정"}, row_id=rid)
+    slow = _ROOT / "slow.seb"
+    sync.export_to_file(slow)
+
+    use_device("SKEW_FAST")
+    sync.import_file(slow)
+    check("나중에 한 수정이 이김 (라마르 시계)",
+          repo.get_row("expressions", rid)["korean"], "느린 기기의 나중 수정")
+
+
 def test_csv_roundtrip() -> None:
     print("\n[CSV 내보내기 · 가져오기]")
     use_device("csv")
@@ -273,6 +357,9 @@ def main() -> int:
         test_merge_order_independent,
         test_incremental_export,
         test_passage_lines_merge,
+        test_incremental_lines_before_passage,
+        test_duplicate_ids_in_file,
+        test_clock_skew,
         test_csv_roundtrip,
         test_review_flow,
         test_bad_file_rejected,

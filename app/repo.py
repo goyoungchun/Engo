@@ -71,21 +71,29 @@ def save_row(table: str, values: dict[str, Any], row_id: str | None = None) -> s
 
 
 def soft_delete(table: str, row_ids: Sequence[str]) -> None:
-    """Tombstone rows. Never a hard DELETE -- see db.py header."""
+    """Tombstone rows. Never a hard DELETE -- see db.py header.
+
+    One transaction, so deleting a passage can never leave its lines live
+    after a crash; chunked, so a huge selection cannot exceed SQLite's bound
+    parameter limit.
+    """
     if not row_ids:
         return
-    conn = db.connect()
-    marks = ", ".join("?" * len(row_ids))
-    conn.execute(
-        f"UPDATE {table} SET deleted = 1, updated_at = ?, origin = ? WHERE id IN ({marks})",
-        (db.now_ms(), db.device_id(), *row_ids),
-    )
-    if table == "passages":
-        conn.execute(
-            f"UPDATE passage_lines SET deleted = 1, updated_at = ?, origin = ? "
-            f"WHERE passage_id IN ({marks})",
-            (db.now_ms(), db.device_id(), *row_ids),
-        )
+    with db.transaction() as conn:
+        for start in range(0, len(row_ids), 500):
+            chunk = list(row_ids[start:start + 500])
+            marks = ", ".join("?" * len(chunk))
+            conn.execute(
+                f"UPDATE {table} SET deleted = 1, updated_at = ?, origin = ? "
+                f"WHERE id IN ({marks})",
+                (db.now_ms(), db.device_id(), *chunk),
+            )
+            if table == "passages":
+                conn.execute(
+                    f"UPDATE passage_lines SET deleted = 1, updated_at = ?, "
+                    f"origin = ? WHERE passage_id IN ({marks})",
+                    (db.now_ms(), db.device_id(), *chunk),
+                )
 
 
 def get_row(table: str, row_id: str) -> dict[str, Any] | None:
@@ -100,14 +108,16 @@ def purge_tombstones(older_than_days: int = 180) -> int:
     generous default. Keeps the file from growing forever.
     """
     cutoff = db.now_ms() - older_than_days * 86_400_000
-    conn = db.connect()
     total = 0
-    for table in EDITABLE:
-        cur = conn.execute(
-            f"DELETE FROM {table} WHERE deleted = 1 AND updated_at < ?", (cutoff,)
-        )
-        total += cur.rowcount or 0
-    conn.execute("VACUUM")
+    with db.transaction() as conn:
+        for table in EDITABLE:
+            cur = conn.execute(
+                f"DELETE FROM {table} WHERE deleted = 1 AND updated_at < ?",
+                (cutoff,),
+            )
+            total += cur.rowcount or 0
+    # VACUUM cannot run inside a transaction.
+    db.connect().execute("VACUUM")
     return total
 
 
@@ -296,16 +306,18 @@ def split_sentences(text: str) -> list[str]:
 
 
 def create_passage(title: str, raw_text: str, tags: str = "") -> str:
-    passage_id = save_row("passages", {
-        "title": title or "제목 없음",
-        "raw_text": raw_text,
-        "tags": tags,
-        "studied_on": today(),
-    })
-    for seq, sentence in enumerate(split_sentences(raw_text)):
-        save_row("passage_lines", {
-            "passage_id": passage_id, "seq": seq, "english": sentence,
+    # One transaction: a crash must not leave a passage with half its lines.
+    with db.transaction():
+        passage_id = save_row("passages", {
+            "title": title or "제목 없음",
+            "raw_text": raw_text,
+            "tags": tags,
+            "studied_on": today(),
         })
+        for seq, sentence in enumerate(split_sentences(raw_text)):
+            save_row("passage_lines", {
+                "passage_id": passage_id, "seq": seq, "english": sentence,
+            })
     return passage_id
 
 
@@ -329,19 +341,22 @@ def resplit_passage(passage_id: str, raw_text: str) -> None:
     for row in existing:
         by_text.setdefault(row["english"].strip(), row)
 
-    soft_delete("passage_lines", [r["id"] for r in existing])
-    for seq, sentence in enumerate(split_sentences(raw_text)):
-        old = by_text.get(sentence.strip())
-        if old:
-            save_row("passage_lines", {
-                "passage_id": passage_id, "seq": seq, "english": sentence,
-                "translation": old["translation"], "note": old["note"],
-            }, row_id=old["id"])
-        else:
-            save_row("passage_lines", {
-                "passage_id": passage_id, "seq": seq, "english": sentence,
-            })
-    save_row("passages", {"raw_text": raw_text}, row_id=passage_id)
+    # One transaction: without it, a crash between the tombstoning and the
+    # re-insert loop would leave every translation deleted.
+    with db.transaction():
+        soft_delete("passage_lines", [r["id"] for r in existing])
+        for seq, sentence in enumerate(split_sentences(raw_text)):
+            old = by_text.get(sentence.strip())
+            if old:
+                save_row("passage_lines", {
+                    "passage_id": passage_id, "seq": seq, "english": sentence,
+                    "translation": old["translation"], "note": old["note"],
+                }, row_id=old["id"])
+            else:
+                save_row("passage_lines", {
+                    "passage_id": passage_id, "seq": seq, "english": sentence,
+                })
+        save_row("passages", {"raw_text": raw_text}, row_id=passage_id)
 
 
 # --------------------------------------------------------------------------
@@ -368,16 +383,16 @@ def review_items(kind: str, studied_on: str = "", tag: str = "",
 
 
 def mark_reviewed(table: str, row_id: str, correct: bool) -> None:
-    """Leitner-style: right answer promotes a box, wrong answer resets to 0."""
-    conn = db.connect()
-    row = conn.execute(f"SELECT box FROM {table} WHERE id = ?", (row_id,)).fetchone()
-    if row is None:
-        return
-    box = min(row["box"] + 1, 5) if correct else 0
-    conn.execute(
-        f"UPDATE {table} SET box = ?, review_count = review_count + 1, "
+    """Leitner-style: right answer promotes a box, wrong answer resets to 0.
+
+    One statement, so there is no read-then-write gap for a crash to land in.
+    """
+    db.connect().execute(
+        f"UPDATE {table} SET "
+        f"box = CASE WHEN ? THEN MIN(box + 1, 5) ELSE 0 END, "
+        f"review_count = review_count + 1, "
         f"last_reviewed_at = ?, updated_at = ?, origin = ? WHERE id = ?",
-        (box, db.now_ms(), db.now_ms(), db.device_id(), row_id),
+        (1 if correct else 0, db.now_ms(), db.now_ms(), db.device_id(), row_id),
     )
 
 

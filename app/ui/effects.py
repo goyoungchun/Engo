@@ -126,6 +126,7 @@ class PageSlider(QObject):
         self._anim: QPropertyAnimation | None = None
         self._previous = tabs.currentIndex()
         self._before: QPixmap | None = None
+        self._in_changed = False
         tabs.currentChanged.connect(self._on_changed)
 
     def snapshot(self) -> None:
@@ -142,7 +143,21 @@ class PageSlider(QObject):
                 or self._before is None or old == index):
             self._before = None
             return
+        if self._in_changed:
+            # processEvents below can re-enter this slot if the user clicks a
+            # third tab mid-transition; the nested run would build an overlay
+            # the outer run then destroys, garbling the slide. Skip the
+            # animation for the nested switch -- the stack itself is already
+            # showing the right page.
+            self._before = None
+            return
+        self._in_changed = True
+        try:
+            self._run_slide(old, index)
+        finally:
+            self._in_changed = False
 
+    def _run_slide(self, old: int, index: int) -> None:
         before, self._before = self._before, None
         # Let the incoming page lay itself out before it is photographed.
         QApplication.processEvents()
@@ -226,12 +241,17 @@ class JellyFilter(QObject):
         existing = self._anims.pop(key, None)
         if existing is not None:
             existing.stop()
-        anim = QPropertyAnimation(button, b"geometry", self)
+        # Parented to the BUTTON, not this filter: the filter lives for the
+        # whole process, and an animation interrupted by its target's death
+        # never fires finished -- each such case would leak a dict entry and
+        # a QPropertyAnimation forever. Owned by the button, both die with it.
+        anim = QPropertyAnimation(button, b"geometry", button)
         anim.setDuration(ms)
         anim.setEasingCurve(curve)
         anim.setStartValue(button.geometry())
         anim.setEndValue(target)
         anim.finished.connect(lambda: self._anims.pop(key, None))
+        anim.destroyed.connect(lambda: self._anims.pop(key, None))
         self._anims[key] = anim
         anim.start()
 

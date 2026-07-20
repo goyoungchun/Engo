@@ -17,11 +17,9 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import re
 import shutil
 import subprocess
-import tempfile
 import urllib.error
 import urllib.request
 import zipfile
@@ -41,7 +39,8 @@ TIMEOUT = 10
 
 # Folders the update must never touch: the user's voices are hundreds of MB
 # and are not in the archive, and the virtualenv is theirs.
-KEEP = {".venv", "venv", "voices", ".git", "__pycache__", "backups"}
+KEEP = {".venv", "venv", "voices", ".git", "__pycache__", "backups",
+        ".update-backup", ".update-staging"}
 
 # state values
 UP_TO_DATE = "up_to_date"
@@ -146,49 +145,64 @@ def _download_archive(tag: str, progress=None) -> bytes:
 
 
 def _install_archive(data: bytes) -> tuple[bool, str]:
-    """Unpack a release zip over the program folder.
+    """Swap a release zip into the program folder.
 
-    The archive is checked for a recognisable Engo layout before anything is
-    replaced, and the files it will overwrite are copied aside first, so a
-    corrupt download cannot leave a half-updated program behind.
+    Built to survive a failure at any point:
+      * the zip is validated for an Engo layout before anything moves
+      * staging lives INSIDE the program folder, so every move is a
+        same-volume rename -- fast and atomic per entry
+      * old items are moved wholesale to .update-backup (not merge-copied),
+        so files a release deleted do not linger and shadow new code
+      * any OSError mid-swap rolls the moved items back before returning
     """
-    with tempfile.TemporaryDirectory(prefix="engo_update_") as tmp:
-        staging = Path(tmp)
-        try:
-            with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                archive.extractall(staging)
-        except zipfile.BadZipFile as exc:
-            return False, str(exc)
+    staging = PROJECT_DIR / ".update-staging"
+    backup = PROJECT_DIR / ".update-backup"
+    shutil.rmtree(staging, ignore_errors=True)
+    shutil.rmtree(backup, ignore_errors=True)
 
-        roots = [p for p in staging.iterdir() if p.is_dir()]
-        if len(roots) != 1:
-            return False, "unexpected archive layout"
-        root = roots[0]
-        if not (root / "app" / "main.py").exists():
-            return False, "archive does not look like Engo"
+    try:
+        staging.mkdir(parents=True)
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            archive.extractall(staging)
+    except (zipfile.BadZipFile, OSError) as exc:
+        shutil.rmtree(staging, ignore_errors=True)
+        return False, str(exc)
 
-        backup = PROJECT_DIR / ".update-backup"
-        shutil.rmtree(backup, ignore_errors=True)
-        backup.mkdir(parents=True, exist_ok=True)
+    roots = [p for p in staging.iterdir() if p.is_dir()]
+    if len(roots) != 1 or not (roots[0] / "app" / "main.py").exists():
+        shutil.rmtree(staging, ignore_errors=True)
+        return False, "archive does not look like Engo"
+    root = roots[0]
 
-        try:
-            for item in root.iterdir():
-                if item.name in KEEP:
-                    continue
-                target = PROJECT_DIR / item.name
-                if target.exists():
-                    if target.is_dir():
-                        shutil.copytree(target, backup / item.name,
-                                        dirs_exist_ok=True)
-                    else:
-                        shutil.copy2(target, backup / item.name)
-                if item.is_dir():
-                    shutil.copytree(item, target, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(item, target)
-        except OSError as exc:
-            return False, str(exc)
+    items = [p for p in root.iterdir() if p.name not in KEEP]
+    moved_out: list[str] = []       # names now sitting in backup/
+    moved_in: list[str] = []        # names now installed from the archive
+    try:
+        backup.mkdir(parents=True)
+        for item in items:          # phase A: old versions out of the way
+            target = PROJECT_DIR / item.name
+            if target.exists():
+                target.replace(backup / item.name) if target.is_file() \
+                    else target.rename(backup / item.name)
+                moved_out.append(item.name)
+        for item in items:          # phase B: new versions in
+            item.rename(PROJECT_DIR / item.name)
+            moved_in.append(item.name)
+    except OSError as exc:
+        # Roll back: drop what came in, restore what went out.
+        for name in moved_in:
+            path = PROJECT_DIR / name
+            shutil.rmtree(path, ignore_errors=True) if path.is_dir() \
+                else path.unlink(missing_ok=True)
+        for name in moved_out:
+            try:
+                (backup / name).rename(PROJECT_DIR / name)
+            except OSError:
+                pass                # best effort; the backup dir remains
+        shutil.rmtree(staging, ignore_errors=True)
+        return False, str(exc)
 
+    shutil.rmtree(staging, ignore_errors=True)
     return True, ""
 
 

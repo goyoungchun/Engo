@@ -226,6 +226,7 @@ class EngoApp:
         if code == i18n.language():
             return
         i18n.set_language(code)
+        i18n.install_qt_translator(self.app)
         db.set_meta("language", code)
         self._retranslate_tray()
         for c, action in self.lang_actions.items():
@@ -252,6 +253,10 @@ class EngoApp:
 
     def _on_window_closed(self) -> None:
         """Tear the window down so it stops holding memory while in the tray."""
+        # The speech engine's status callback points at this window; left in
+        # place it would fire RuntimeErrors at a destroyed object every time a
+        # sticky note speaks, and keep the dead window's wrapper alive.
+        tts.set_status_listener(None)
         window = self.window
         self.window = None
         if window is not None:
@@ -294,6 +299,36 @@ class EngoApp:
         self.app.quit()
 
 
+def _install_excepthook() -> None:
+    """Log unexpected errors and say something, instead of dying silently.
+
+    Under pythonw there is no console: an uncaught exception in a slot prints
+    a traceback nobody can see and the action just doesn't happen. Writing to
+    a log file gives failures a paper trail, and the dialog tells the user
+    the action failed rather than leaving them to wonder.
+    """
+    import traceback
+
+    def hook(exc_type, exc, tb):
+        text = "".join(traceback.format_exception(exc_type, exc, tb))
+        log = db.default_data_dir() / "error.log"
+        try:
+            log.parent.mkdir(parents=True, exist_ok=True)
+            with open(log, "a", encoding="utf-8") as fh:
+                import datetime
+                fh.write(f"\n--- {datetime.datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+                fh.write(text)
+        except OSError:
+            pass
+        try:
+            QMessageBox.critical(None, "Engo",
+                                 t("unexpected_error", path=str(log)))
+        except Exception:
+            pass          # a broken hook must never recurse
+
+    sys.excepthook = hook
+
+
 def main() -> int:
     QApplication.setAttribute(Qt.AA_DontCreateNativeWidgetSiblings, True)
     app = QApplication(sys.argv)
@@ -316,7 +351,9 @@ def main() -> int:
     # Preferences live in the database, so it has to be open before the first
     # pixel is drawn.
     db.connect()
+    _install_excepthook()
     i18n.set_language(db.get_meta("language", i18n.DEFAULT))
+    i18n.install_qt_translator(app)
     palette = theme.apply(app, db.get_meta("theme", theme.DEFAULT_PALETTE))
     app.setWindowIcon(app_icon(palette))
 
@@ -346,6 +383,8 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
 
 
 

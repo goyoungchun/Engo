@@ -129,27 +129,59 @@ def export_to_file(path: str | Path, since_ms: int = 0,
 
     path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    if path.suffix.lower() in (".json", ".txt"):
-        path.write_text(text, encoding="utf-8")
-    else:
-        with gzip.open(path, "wt", encoding="utf-8", compresslevel=6) as fh:
-            fh.write(text)
+    # Write to a sidecar and rename: a disk-full or permission failure must
+    # not leave a truncated file sitting where a valid export used to be.
+    part = path.with_suffix(path.suffix + ".part")
+    try:
+        if path.suffix.lower() in (".json", ".txt"):
+            part.write_text(text, encoding="utf-8")
+        else:
+            with gzip.open(part, "wt", encoding="utf-8", compresslevel=6) as fh:
+                fh.write(text)
+        part.replace(path)
+    except OSError:
+        part.unlink(missing_ok=True)
+        raise
     return counts
 
 
+# A study database is a few MB even at thousands of entries; anything past
+# this is not one of our exports (or is a decompression bomb) and would only
+# balloon memory before failing anyway.
+MAX_PAYLOAD_BYTES = 256 * 1024 * 1024
+
+
 def _read_payload(path: Path) -> dict[str, Any]:
-    raw = path.read_bytes()
-    if raw[:2] == b"\x1f\x8b":                      # gzip magic
-        text = gzip.decompress(raw).decode("utf-8")
+    from .i18n import t
+    path = Path(path)
+    head = b""
+    with open(path, "rb") as fh:
+        head = fh.read(2)
+    if head == b"\x1f\x8b":                        # gzip magic
+        # Stream-decompress with a hard cap: gzip can hide a huge payload in
+        # a small file, and decompressing it all at once would exhaust RAM
+        # on mere file *selection* (preview reads the payload too).
+        chunks: list[bytes] = []
+        total = 0
+        with gzip.open(path, "rb") as fh:
+            while True:
+                chunk = fh.read(1 << 20)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_PAYLOAD_BYTES:
+                    raise ValueError(t("file_too_large"))
+                chunks.append(chunk)
+        text = b"".join(chunks).decode("utf-8")
     else:
-        text = raw.decode("utf-8-sig")
+        if path.stat().st_size > MAX_PAYLOAD_BYTES:
+            raise ValueError(t("file_too_large"))
+        text = path.read_bytes().decode("utf-8-sig")
     payload = json.loads(text)
     if payload.get("format") != FORMAT:
-        raise ValueError("이 파일은 Engo 내보내기 파일이 아닙니다.")
+        raise ValueError(t("not_engo_file"))
     if payload.get("format_version", 0) > FORMAT_VERSION:
-        raise ValueError(
-            "더 새로운 버전에서 만든 파일입니다. 프로그램을 먼저 업데이트하세요."
-        )
+        raise ValueError(t("file_from_future"))
     return payload
 
 
@@ -209,8 +241,6 @@ def merge_payload(payload: dict[str, Any], dry_run: bool = False) -> MergeReport
         conn.execute("ROLLBACK")
         raise
 
-    if not dry_run:
-        _drop_orphan_lines(conn)
     return report
 
 
@@ -238,15 +268,31 @@ def _merge_table(conn, table: str, block: dict[str, Any]) -> tuple[int, int, int
         f"UPDATE {table} SET {', '.join(f'{c} = ?' for c in write_cols)} WHERE id = ?"
     )
 
-    added = updated = skipped = deletes = 0
-    inserts: list[tuple] = []
-    updates: list[tuple] = []
-
+    # Dedupe by id first, keeping the winning stamp -- a hand-edited or
+    # concatenated file with the same id twice would otherwise hit a UNIQUE
+    # violation on executemany and roll the whole import back.
+    best: dict[str, tuple] = {}
     for row in block["rows"]:
         row_id = row[idx["id"]]
         ts = row[idx["updated_at"]]
         origin = row[idx["origin"]] if "origin" in idx else ""
+        kept = best.get(row_id)
+        if kept is None or (ts, origin) > (kept[idx["updated_at"]],
+                                           kept[idx["origin"]] if "origin" in idx else ""):
+            best[row_id] = row
+
+    added = updated = skipped = deletes = 0
+    inserts: list[tuple] = []
+    updates: list[tuple] = []
+
+    for row in best.values():
+        row_id = row[idx["id"]]
+        ts = row[idx["updated_at"]]
+        origin = row[idx["origin"]] if "origin" in idx else ""
         values = [row[idx[c]] for c in write_cols]
+        # Feed the merge clock so local edits made after this import always
+        # outrank what was just merged, whatever the sender's clock said.
+        db.observe_timestamp(int(ts or 0))
 
         cur = local.get(row_id)
         if cur is None:
@@ -269,17 +315,13 @@ def _merge_table(conn, table: str, block: dict[str, Any]) -> tuple[int, int, int
     return added, updated, skipped, deletes
 
 
-def _drop_orphan_lines(conn) -> None:
-    """Tombstone passage_lines whose passage never arrived.
-
-    Happens when someone hand-edits an export or merges a partial file. Left
-    alone they would be invisible rows padding the database forever.
-    """
-    conn.execute(
-        "UPDATE passage_lines SET deleted = 1, updated_at = ?, origin = ? "
-        "WHERE deleted = 0 AND passage_id NOT IN (SELECT id FROM passages)",
-        (db.now_ms(), db.device_id()),
-    )
+# NOTE: orphan passage_lines (lines whose passage has not arrived yet) are
+# deliberately left untouched. An earlier version tombstoned them with a
+# fresh timestamp -- which meant that importing an incremental export before
+# its full export permanently deleted those translations everywhere, because
+# the new tombstone outranked the older genuine rows when they arrived.
+# Orphans are invisible (every query goes through a passage id) and resolve
+# themselves the moment their passage is merged.
 
 
 # --------------------------------------------------------------------------
@@ -315,7 +357,15 @@ def import_csv(table: str, path: str | Path) -> int:
     merge; it is an intake path for material typed up elsewhere."""
     fields = CSV_FIELDS[table]
     n = 0
-    with open(path, encoding="utf-8-sig", newline="") as fh:
+    # Excel on Korean Windows saves "CSV (comma delimited)" as cp949, and that
+    # is exactly who this feature is for -- fall back rather than erroring.
+    encoding = "utf-8-sig"
+    try:
+        with open(path, encoding=encoding, newline="") as probe:
+            probe.read()
+    except UnicodeDecodeError:
+        encoding = "cp949"
+    with open(path, encoding=encoding, newline="") as fh:
         reader = csv.DictReader(fh)
         if not reader.fieldnames:
             return 0

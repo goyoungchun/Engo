@@ -34,15 +34,23 @@ def download(url: str, path: Path) -> None:
     if path.exists() and path.stat().st_size > 1000:
         print("already there")
         return
-    with urllib.request.urlopen(url) as response, open(path, "wb") as handle:
-        total = int(response.headers.get("Content-Length", 0))
-        done = 0
-        while chunk := response.read(1 << 16):
-            handle.write(chunk)
-            done += len(chunk)
-            if total:
-                print(f"\r  {path.name} … {done * 100 // total}%",
-                      end="", flush=True)
+    # Stage on .part and rename only when complete -- a Ctrl-C mid-download
+    # must not leave a truncated model that the app then treats as installed.
+    part = path.with_suffix(path.suffix + ".part")
+    try:
+        with urllib.request.urlopen(url) as response, open(part, "wb") as handle:
+            total = int(response.headers.get("Content-Length", 0))
+            done = 0
+            while chunk := response.read(1 << 16):
+                handle.write(chunk)
+                done += len(chunk)
+                if total:
+                    print(f"\r  {path.name} … {done * 100 // total}%",
+                          end="", flush=True)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
+    part.replace(path)
     print(f"\r  {path.name} … {path.stat().st_size / 1024 / 1024:.0f} MB")
 
 

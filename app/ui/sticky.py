@@ -114,11 +114,13 @@ class ReviewItem(QFrame):
             speak.setFixedSize(22, 22)
             speak.setCursor(QCursor(Qt.PointingHandCursor))
             speak.setToolTip(t("speak_tip"))
+            hover = ("rgba(255,255,255,0.14)" if dark
+                     else "rgba(255,255,255,0.7)")
             speak.setStyleSheet(
                 "QPushButton { border: none; background: transparent;"
                 " padding: 0; margin: 0; min-width: 0; font-size: 10pt; }"
-                " QPushButton:hover { background: rgba(255,255,255,0.7);"
-                " border-radius: 6px; }")
+                f" QPushButton:hover {{ background: {hover};"
+                f" border-radius: 6px; }}")
             speak.clicked.connect(lambda: tts.speak(self._english_text))
             top.addWidget(speak, 0, Qt.AlignTop)
         self._layout.addLayout(top)
@@ -199,20 +201,13 @@ class StickySettings(QDialog):
 
         self.query = QComboBox()
         self.query.setEditable(True)
-        self.query.addItem(t("scope_today"), "today")
-        self.query.addItem(t("scope_weak_long"), "weak")
-        self.query.addItem(t("scope_all"), "")
-        kind = state.get("kind", "expressions")
-        for date, count in repo.study_dates(kind, limit=30):
-            self.query.addItem(f"{date} ({count})", f"date:{date}")
-        for tag in repo.all_tags(kind):
-            self.query.addItem(f"{t('tag')}: {tag}", f"tag:{tag}")
-        current = state.get("query", "today")
-        index = self.query.findData(current)
-        if index >= 0:
-            self.query.setCurrentIndex(index)
-        else:
-            self.query.setCurrentText(current)
+        self._fill_scopes(state.get("kind", "expressions"),
+                          state.get("query", "today"))
+        # The date/tag lists belong to the chosen kind; switching from
+        # expressions to sentences must not keep offering expression tags.
+        self.kind.currentIndexChanged.connect(
+            lambda _: self._fill_scopes(self.kind.currentData(),
+                                        self.query.currentData() or "today"))
         form.addRow(t("scope"), self.query)
 
         self.color = QComboBox()
@@ -248,6 +243,23 @@ class StickySettings(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
+
+    def _fill_scopes(self, kind: str, current: str) -> None:
+        self.query.blockSignals(True)
+        self.query.clear()
+        self.query.addItem(t("scope_today"), "today")
+        self.query.addItem(t("scope_weak_long"), "weak")
+        self.query.addItem(t("scope_all"), "")
+        for date, count in repo.study_dates(kind, limit=30):
+            self.query.addItem(f"{date} ({count})", f"date:{date}")
+        for tag in repo.all_tags(kind):
+            self.query.addItem(f"{t('tag')}: {tag}", f"tag:{tag}")
+        index = self.query.findData(current)
+        if index >= 0:
+            self.query.setCurrentIndex(index)
+        else:
+            self.query.setCurrentText(current)
+        self.query.blockSignals(False)
 
     def values(self) -> dict:
         data = self.query.currentData()
@@ -380,13 +392,18 @@ class StickyNote(QWidget):
         # gives every QPushButton padding, and a rule here that does not reset
         # it leaves these 23x23 title bar buttons with no room for their glyph
         # -- Qt clips the text away and they render as blank squares.
+        # The hover fill must dim, not lighten, on the dark palette: a near-
+        # opaque white wash behind light-coloured glyphs made the buttons
+        # vanish under the cursor on Midnight.
+        hover = ("rgba(255,255,255,0.14)" if self.palette.dark
+                 else "rgba(255,255,255,0.7)")
         self.frame.setStyleSheet(
             f"QFrame#note {{ background: {bg}; border: 1px solid {border};"
             f" border-radius: 12px; }}"
             f" QLabel {{ color: {fg}; background: transparent; border: none; }}"
             f" QPushButton {{ border: none; background: transparent; color: {fg};"
             f" font-size: 11pt; padding: 0; margin: 0; min-width: 0; }}"
-            f" QPushButton:hover {{ background: rgba(255,255,255,0.7);"
+            f" QPushButton:hover {{ background: {hover};"
             f" border-radius: 6px; }}"
             f" QScrollArea {{ background: transparent; border: none; }}"
         )
@@ -541,6 +558,14 @@ class StickyNote(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         self._drag_offset = None
         super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        # A frameless window has no title-bar ✕; Esc is the reflex that
+        # should work everywhere a window can be dismissed.
+        if event.key() == Qt.Key_Escape:
+            self.close()
+            return
+        super().keyPressEvent(event)
 
     def contextMenuEvent(self, event) -> None:
         menu = round_menu(QMenu(self))

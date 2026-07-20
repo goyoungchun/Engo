@@ -284,8 +284,9 @@ class MainWindow(QMainWindow):
             action.setText(p.name_en if i18n.language() == "en" else p.name_ko)
         self.voice_menu.setTitle(t("menu_voice"))
         for key, action in self.voice_actions.items():
-            action.setText(t("voice_off") if key == "off"
-                           else tts.VOICES[key].label(i18n.language()))
+            # Through _voice_label, or a language switch silently drops the
+            # (기본값) marker until the next slot edit.
+            action.setText(t("voice_off") if key == "off" else _voice_label(key))
         self.lang_menu.setTitle(t("menu_language"))
 
         self.data_menu.setTitle(t("menu_data"))

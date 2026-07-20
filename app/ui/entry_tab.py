@@ -217,6 +217,14 @@ class EntryTab(QWidget):
         self.view.selectionModel().currentRowChanged.connect(self._on_row_changed)
         self.view.doubleClicked.connect(lambda _: self._focus_first_editor())
         self.view.installEventFilter(self)
+
+        # Delete key deletes the selected rows -- WidgetShortcut so typing
+        # Delete inside the editor fields is unaffected.
+        from PySide6.QtGui import QKeySequence, QShortcut
+        shortcut = QShortcut(QKeySequence.Delete, self.view)
+        shortcut.setContext(Qt.WidgetShortcut)
+        shortcut.activated.connect(self.delete_selected)
+
         # The table draws its own rounded border, so wrapping it in a card put
         # a border inside a border. These tabs hold nothing but the table.
         return self.view
@@ -272,6 +280,7 @@ class EntryTab(QWidget):
         # to `buttons` first is not enough -- that layout is not installed on
         # a widget yet, so addWidget does not reparent anything.
         self.speak_btn = QPushButton("🔊", panel)
+        self.speak_btn.setObjectName("speak")
         self.speak_btn.setFixedWidth(46)
         self.speak_btn.clicked.connect(self.speak_current)
         self.speak_btn.setVisible(tts.installed())
@@ -502,4 +511,5 @@ class EntryTab(QWidget):
         """Persist pending edits -- called before the window closes."""
         if self._dirty:
             self.save_current(silent=True)
+
 

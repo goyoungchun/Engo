@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
-from .. import tts
+from .. import i18n, tts
 from ..i18n import t
 from . import voice_setup
 
@@ -64,7 +64,7 @@ class VoiceSlotsDialog(QDialog):
         for row, key in enumerate(tts.SLOT_KEYS, start=1):
             voice = tts.VOICES[key]
 
-            name = QLineEdit(voice.label("ko"))
+            name = QLineEdit(voice.label(i18n.language()))
             grid.addWidget(name, row, 0)
 
             # Sits right beside the name, so it is obvious which four slots
@@ -181,9 +181,10 @@ class VoiceSlotsDialog(QDialog):
         for key in tts.SLOT_KEYS:
             voice = tts.VOICES[key]
             row = self.rows[key]
-            row["name"].setText(voice.label("ko"))
+            row["name"].setText(voice.label(i18n.language()))
             index = _find_model(row["model"], voice.model, voice.quality)
             if index >= 0:
                 row["model"].setCurrentIndex(index)
         self._refresh_all()
+
 
