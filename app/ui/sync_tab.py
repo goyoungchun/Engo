@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from .. import db, repo, sync, theme, tts, update
 from ..i18n import t
 from . import voice_setup
-from .common import hint_label, scrollable
+from .common import ResponsiveRow, hint_label, scrollable
 
 
 def _stamp(ms: int) -> str:
@@ -60,22 +60,28 @@ class SyncTab(QWidget):
         inner.setContentsMargins(16, 14, 16, 14)
         inner.setSpacing(14)
 
-        # Update and voices are both short status rows, so they share a line.
-        # Aligned to the top: the two boxes are not the same height, and a
-        # horizontal layout centres them by default, which left the titles on
-        # visibly different lines.
-        top = QHBoxLayout()
-        top.setSpacing(14)
+        # Two pairs that sit side by side while there is room and stack when
+        # the window is narrowed.
+        self.status_row = ResponsiveRow(threshold=820)
         for box in (self._build_update_box(), self._build_voices_box()):
-            box.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-            top.addWidget(box, 1, Qt.AlignTop)
-        inner.addLayout(top)
+            box.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+            self.status_row.add(box)
+        inner.addWidget(self.status_row)
 
-        for box in (self._build_device_box(), self._build_export_box(),
-                    self._build_import_box(), self._build_extra_box()):
-            box.setSizePolicy(box.sizePolicy().horizontalPolicy(),
-                              QSizePolicy.Fixed)
-            inner.addWidget(box)
+        self._build_device_box().setSizePolicy(QSizePolicy.Preferred,
+                                               QSizePolicy.Fixed)
+        inner.addWidget(self.device_box)
+
+        self.transfer_row = ResponsiveRow(threshold=940)
+        for box in (self._build_export_box(), self._build_import_box()):
+            box.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+            self.transfer_row.add(box)
+        inner.addWidget(self.transfer_row)
+
+        extra = self._build_extra_box()
+        extra.setSizePolicy(extra.sizePolicy().horizontalPolicy(),
+                            QSizePolicy.Fixed)
+        inner.addWidget(extra)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -560,6 +566,7 @@ class SyncTab(QWidget):
             self.check_update()
         else:
             QMessageBox.critical(self, t("update_failed"), message or "")
+
 
 
 

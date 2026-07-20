@@ -42,6 +42,10 @@ class MainWindow(QMainWindow):
         self._build_menu()
 
         self.status_label = QLabel()
+        # The margin goes on the bar, not the label: a widget's contents
+        # margins indent its text but leave the widget itself flush against
+        # the window edge.
+        self.statusBar().setContentsMargins(12, 0, 12, 0)
         self.statusBar().addWidget(self.status_label)
         # Right-hand side of the status bar: what the speech engine is doing.
         self.tts_label = QLabel()

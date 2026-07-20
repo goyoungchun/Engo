@@ -94,13 +94,15 @@ def main() -> int:
     # Measured, not assumed -- the "high" tier is a bigger model but speaks
     # lower, which is why it is not the default.
     for gender in ("female", "male"):
-        default = next(v for v in tts.VOICES.values()
-                       if v.gender == gender and v.default)
+        higher = next(v for v in tts.VOICES.values()
+                      if v.gender == gender and v.quality == "medium")
         lower = next(v for v in tts.VOICES.values()
-                     if v.gender == gender and not v.default)
-        check(f"{gender}: 기본({default.pitch_hz}Hz)이 "
+                     if v.gender == gender and v.quality == "high")
+        check(f"{gender}: 기본({higher.pitch_hz}Hz)이 "
               f"낮은 톤({lower.pitch_hz}Hz)보다 높다",
-              default.pitch_hz > lower.pitch_hz)
+              higher.pitch_hz > lower.pitch_hz)
+    check("네 칸 모두 첫 실행에 받는다",
+          len(tts.default_voices()) == 4, f"({len(tts.default_voices())}개)")
 
     print("\n[옛 설정값 이전]")
     for old, expected in (("female", "slot1"), ("male", "slot2"),

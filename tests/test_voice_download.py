@@ -44,10 +44,10 @@ def main() -> int:
     try:
         print("[빈 상태에서의 판정]")
         check("설치된 음성이 없다고 본다", not tts.installed())
-        check("기본 음성 2개가 빠졌다고 본다", len(tts.missing_defaults()) == 2,
+        check("기본 음성 4개가 빠졌다고 본다", len(tts.missing_defaults()) == 4,
               f"({len(tts.missing_defaults())}개)")
         size = tts.download_bytes(tts.missing_defaults()) / 1024 / 1024
-        check("받아야 할 크기를 알려준다", 100 < size < 200, f"({size:.0f} MB)")
+        check("받아야 할 크기를 알려준다", 300 < size < 400, f"({size:.0f} MB)")
 
         print("\n[실제 내려받기]")
         voice = tts.VOICES["slot1"]
@@ -110,4 +110,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 

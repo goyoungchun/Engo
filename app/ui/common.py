@@ -1,4 +1,4 @@
-"""Shared UI pieces: the lazy table model, form field specs, small widgets."""
+﻿"""Shared UI pieces: the lazy table model, form field specs, small widgets."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import Any
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QDateEdit, QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
-    QVBoxLayout, QWidget,
+    QDateEdit, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QPlainTextEdit, QVBoxLayout, QWidget,
 )
 
 from .. import i18n, repo, theme
@@ -277,6 +277,97 @@ def toolbar_row() -> QHBoxLayout:
     return row
 
 
+class ResponsiveRow(QWidget):
+    """Two panels side by side, stacked once there is not enough width.
+
+    Qt has no flow layout, so the switch is done by hand: one grid, and the
+    children move between (0,0)/(0,1) and (0,0)/(1,0) as the width crosses a
+    threshold. Side by side the two are forced to a common height, because
+    two boxes of different heights on the same line read as misaligned.
+    """
+
+    def __init__(self, threshold: int = 900, spacing: int = 14, parent=None):
+        super().__init__(parent)
+        self._threshold = threshold
+        self._panels: list[QWidget] = []
+        self._columns = 0
+        self._watched = None
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setSpacing(spacing)
+
+    def add(self, panel: QWidget) -> None:
+        self._panels.append(panel)
+        self._arrange(force=True)
+
+    def _available_width(self) -> int:
+        """Width there is actually room for, not the width we already take.
+
+        Once two panels sit side by side, the row's own minimum width is the
+        sum of both -- so asking self.width() means it can never decide to
+        stack again. The scroll area's viewport is the honest number.
+        """
+        from PySide6.QtWidgets import QAbstractScrollArea
+
+        parent = self.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QAbstractScrollArea):
+                viewport = parent.viewport()
+                if self._watched is not viewport:
+                    # Watch the viewport, because this row may never get a
+                    # resize event of its own: side by side it sits at its
+                    # minimum width, and a narrowing window cannot shrink it,
+                    # so nothing would ever prompt a re-think.
+                    if self._watched is not None:
+                        self._watched.removeEventFilter(self)
+                    viewport.installEventFilter(self)
+                    self._watched = viewport
+                return viewport.width()
+            parent = parent.parentWidget()
+        return self.width()
+
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        if obj is self._watched and event.type() == QEvent.Resize:
+            self._arrange()
+        return super().eventFilter(obj, event)
+
+    def _arrange(self, force: bool = False) -> None:
+        columns = 2 if self._available_width() >= self._threshold else 1
+        if columns == self._columns and not force:
+            self._match_heights(columns)
+            return
+        self._columns = columns
+
+        for panel in self._panels:
+            self._grid.removeWidget(panel)
+        for index, panel in enumerate(self._panels):
+            if columns == 2:
+                self._grid.addWidget(panel, 0, index)
+            else:
+                self._grid.addWidget(panel, index, 0)
+        for column in range(2):
+            self._grid.setColumnStretch(column, 1 if columns == 2 else 0)
+        self._match_heights(columns)
+
+    def _match_heights(self, columns: int) -> None:
+        if columns == 2 and self._panels:
+            tallest = max(p.sizeHint().height() for p in self._panels)
+            for panel in self._panels:
+                panel.setMinimumHeight(tallest)
+        else:
+            for panel in self._panels:
+                panel.setMinimumHeight(0)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._arrange()
+
+    @property
+    def columns(self) -> int:
+        return self._columns
+
+
 def scrollable(inner: QWidget) -> QWidget:
     """Wrap a panel so it scrolls instead of squashing its children.
 
@@ -335,3 +426,4 @@ def round_corners(widget) -> None:
             ctypes.byref(value), ctypes.sizeof(value))
     except (AttributeError, OSError, ValueError):
         pass
+

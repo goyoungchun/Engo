@@ -80,6 +80,9 @@ SLOT_KEYS = ("slot1", "slot2", "slot3", "slot4")
 # defaults because they sit higher and lift more clearly at the end of a
 # question; the "high" tier is a bigger model but speaks noticeably lower,
 # which reads as flatter rather than better.
+# All four are downloaded on first run so the shipped choice works out of the
+# box; anything else from the catalogue is fetched only when a slot is pointed
+# at it.
 FACTORY_SLOTS: dict[str, Voice] = {
     v.key: v for v in (
         Voice("slot1", "female", "hfc_female", "medium",
@@ -87,9 +90,11 @@ FACTORY_SLOTS: dict[str, Voice] = {
         Voice("slot2", "male", "hfc_male", "medium",
               "남성 · 기본", "Male · default", default=True, pitch_hz=167),
         Voice("slot3", "female", "lessac", "high",
-              "여성 · 낮은 톤 (Lessac)", "Female · lower (Lessac)", pitch_hz=187),
+              "여성 · 낮은 톤 (Lessac)", "Female · lower (Lessac)",
+              default=True, pitch_hz=187),
         Voice("slot4", "male", "ryan", "high",
-              "남성 · 낮은 톤 (Ryan)", "Male · lower (Ryan)", pitch_hz=154),
+              "남성 · 낮은 톤 (Ryan)", "Male · lower (Ryan)",
+              default=True, pitch_hz=154),
     )
 }
 DEFAULT_VOICE = "slot1"
