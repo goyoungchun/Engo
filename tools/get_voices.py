@@ -15,8 +15,17 @@ import urllib.request
 from pathlib import Path
 
 BASE = ("https://huggingface.co/rhasspy/piper-voices/resolve/main"
-        "/en/en_US/{name}/medium/en_US-{name}-medium{ext}")
-VOICES = ("hfc_female", "hfc_male")
+        "/en/en_US/{name}/{quality}/en_US-{name}-{quality}{ext}")
+
+# (name, quality). The `high` pair is the default and sounds fuller; the
+# `medium` pair is a third of the size and synthesises three to four times
+# faster, and stays selectable in the menu for slower machines.
+VOICES = (
+    ("lessac", "high"),         # female, default
+    ("ryan", "high"),           # male, default
+    ("hfc_female", "medium"),
+    ("hfc_male", "medium"),
+)
 TARGET = Path(__file__).resolve().parent.parent / "voices"
 
 
@@ -40,11 +49,11 @@ def download(url: str, path: Path) -> None:
 def main() -> int:
     TARGET.mkdir(parents=True, exist_ok=True)
     print(f"Downloading Piper voices into {TARGET}")
-    for name in VOICES:
+    for name, quality in VOICES:
         for ext in (".onnx", ".onnx.json"):
-            url = BASE.format(name=name, ext=ext)
+            url = BASE.format(name=name, quality=quality, ext=ext)
             try:
-                download(url, TARGET / f"en_US-{name}-medium{ext}")
+                download(url, TARGET / f"en_US-{name}-{quality}{ext}")
             except Exception as exc:
                 print(f"\n  failed: {exc}")
                 return 1

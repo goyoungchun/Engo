@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Signal
+from PySide6.QtCore import QSize, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QLabel, QMainWindow, QMessageBox, QTabWidget, QVBoxLayout, QWidget,
@@ -24,6 +24,7 @@ class MainWindow(QMainWindow):
     stickyRequested = Signal(str, str)   # kind, tag
     themeChanged = Signal(str)
     languageChanged = Signal(str)
+    ttsStatus = Signal(str, str)         # state, voice key
     closedToTray = Signal()
 
     def __init__(self, palette: theme.Palette, sticky_count):
@@ -32,6 +33,7 @@ class MainWindow(QMainWindow):
         self._sticky_count = sticky_count
         self._built: dict[int, QWidget] = {}
         self._quitting = False
+        self._update_available = False
 
         self.resize(1180, 720)
         self.setMinimumSize(QSize(900, 560))
@@ -41,6 +43,16 @@ class MainWindow(QMainWindow):
 
         self.status_label = QLabel()
         self.statusBar().addWidget(self.status_label)
+        # Right-hand side of the status bar: what the speech engine is doing.
+        self.tts_label = QLabel()
+        self.tts_label.setObjectName("hint")
+        self.statusBar().addPermanentWidget(self.tts_label)
+        # The listener is called from the speech worker thread; going through
+        # a signal hands it to the GUI thread, which is the only one that may
+        # touch widgets.
+        self.ttsStatus.connect(self._on_tts_status)
+        tts.set_status_listener(
+            lambda state, key: self.ttsStatus.emit(state, key))
 
         self.retranslate()
         # Only the first tab is constructed up front; the rest cost nothing
@@ -83,8 +95,14 @@ class MainWindow(QMainWindow):
             tab = EntryTab("grammar", self.palette)
         else:
             tab = SyncTab(self.palette)
+            tab.updateAvailable.connect(self._on_update_available)
         tab.dataChanged.connect(self.refresh_status)
         return tab
+
+    def _on_update_available(self, available: bool) -> None:
+        """Mark the Data tab so a waiting update is visible from any tab."""
+        self._update_available = available
+        self.tabs.setTabText(4, t("tab_data_update" if available else "tab_data"))
 
     def _ensure_tab(self, index: int) -> None:
         self._dismiss_stray_windows()
@@ -185,14 +203,17 @@ class MainWindow(QMainWindow):
         voice_group = QActionGroup(self)
         voice_group.setExclusive(True)
         self.voice_actions: dict[str, QAction] = {}
-        current_voice = "off" if not tts.enabled() else tts.gender()
-        for key in ("female", "male", "off"):
+        current_voice = "off" if not tts.enabled() else tts.voice_key()
+        keys = [v.key for v in tts.available_voices()] + ["off"]
+        for key in keys:
             action = QAction(self, checkable=True)
             action.setChecked(key == current_voice)
             action.triggered.connect(lambda _=False, k=key: self._set_voice(k))
             voice_group.addAction(action)
             self.voice_menu.addAction(action)
             self.voice_actions[key] = action
+            if key == "off":
+                self.voice_menu.insertSeparator(action)
 
         self.lang_menu = add_menu(self.view_menu)
         lang_group = QActionGroup(self)
@@ -234,6 +255,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(t("app_title"))
         for i, key in enumerate(TAB_KEYS):
             self.tabs.setTabText(i, t(key))
+        if self._update_available:
+            self.tabs.setTabText(4, t("tab_data_update"))
 
         self.study_menu.setTitle(t("menu_study"))
         self.act_note.setText(t("menu_new_note"))
@@ -250,8 +273,8 @@ class MainWindow(QMainWindow):
             action.setText(p.name_en if i18n.language() == "en" else p.name_ko)
         self.voice_menu.setTitle(t("menu_voice"))
         for key, action in self.voice_actions.items():
-            action.setText(t({"female": "voice_female", "male": "voice_male",
-                              "off": "voice_off"}[key]))
+            action.setText(t("voice_off") if key == "off"
+                           else tts.VOICES[key].label(i18n.language()))
         self.lang_menu.setTitle(t("menu_language"))
 
         self.data_menu.setTitle(t("menu_data"))
@@ -282,11 +305,29 @@ class MainWindow(QMainWindow):
         if key == "off":
             tts.set_enabled(False)
             tts.stop()
+            self.tts_label.setText("")
         else:
             tts.set_enabled(True)
-            tts.set_gender(key)
+            tts.set_voice(key)
+            # Warm the new model up straight away. That is what puts the
+            # "changing voice" line on screen, and it means the next 🔊 click
+            # plays immediately instead of waiting a second and a half.
+            tts.preload()
         for name, action in self.voice_actions.items():
             action.setChecked(name == key)
+
+    def _on_tts_status(self, state: str, voice_key: str) -> None:
+        label = tts.VOICES[voice_key].label(i18n.language()) if voice_key in tts.VOICES else ""
+        if state == "loading":
+            self.tts_label.setText(t("tts_loading", voice=label))
+        elif state == "speaking":
+            self.tts_label.setText(t("tts_speaking", voice=label))
+        elif state == "error":
+            self.tts_label.setText(t("tts_error"))
+            QTimer.singleShot(4000, lambda: self.tts_label.setText(""))
+        else:
+            # Leave it up briefly so a short clip does not just flicker.
+            QTimer.singleShot(1200, lambda: self.tts_label.setText(""))
 
     def _add_sentence(self, english: str, korean: str) -> None:
         repo.save_row("sentences", {
@@ -344,5 +385,6 @@ class MainWindow(QMainWindow):
         event.ignore()
         self.hide()
         self.closedToTray.emit()
+
 
 

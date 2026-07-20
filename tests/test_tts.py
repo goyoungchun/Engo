@@ -78,20 +78,38 @@ def main() -> int:
     db.connect()
 
     print("\n[설치 상태]")
-    check("두 음성 파일이 모두 있음", tts.installed(),
-          f"({tts.VOICES_DIR})")
+    available = tts.available_voices()
+    check("음성이 하나 이상 설치됨", tts.installed(), f"({tts.VOICES_DIR})")
     if not tts.installed():
         print("\n음성 모델이 없어 나머지 검사를 건너뜁니다.")
         return 1
+    print(f"  사용 가능: {', '.join(v.key for v in available)}")
     check("기본값은 켜짐", tts.enabled())
-    check("기본 목소리는 여성", tts.gender() == "female", f"({tts.gender()})")
+    check("기본 목소리는 고음질 여성", tts.voice_key() == "female_high",
+          f"({tts.voice_key()})")
+    check("남녀 각각 최소 하나씩 있음",
+          {v.gender for v in available} == {"female", "male"})
 
-    print("\n[남/여 목소리가 실제 소리를 만드는지]")
+    print("\n[옛 설정값 이전]")
+    db.set_meta("tts_voice", "female")          # pre-rename value
+    check("'female' → female_high", tts.voice_key() == "female_high",
+          tts.voice_key())
+    db.set_meta("tts_voice", "male")
+    check("'male' → male_high", tts.voice_key() == "male_high", tts.voice_key())
+    db.set_meta("tts_voice", "nonsense")
+    check("알 수 없는 값이면 기본값으로", tts.voice_key() in tts.VOICES,
+          tts.voice_key())
+
+    print("\n[상태 알림]")
+    seen: list[tuple[str, str]] = []
+    tts.set_status_listener(lambda state, key: seen.append((state, key)))
+
+    print("\n[각 음성이 실제 소리를 만드는지]")
     baseline = rss_mb()
     produced = {}
-    for voice in ("female", "male"):
-        tts.set_gender(voice)
-        check(f"{voice} 설정이 저장됨", tts.gender() == voice)
+    for voice in [v.key for v in available]:
+        tts.set_voice(voice)
+        check(f"{voice} 설정이 저장됨", tts.voice_key() == voice)
 
         for old in Path(_ROOT).glob("speech*.wav"):
             old.unlink(missing_ok=True)
@@ -118,11 +136,22 @@ def main() -> int:
         check(f"{voice}: 무음이 아님", max(data[:2000], default=0) > 0)
         produced[voice] = bytes(data)
 
-    if len(produced) == 2:
-        check("남/여 음성이 서로 다름", produced["female"] != produced["male"])
+    distinct = {bytes(v) for v in produced.values()}
+    check("각 음성이 서로 다른 소리를 냄", len(distinct) == len(produced),
+          f"({len(distinct)}/{len(produced)} 서로 다름)")
 
     loaded = rss_mb()
     print(f"\n  모델 로드 후 메모리 {loaded:.0f} MB (기준 {baseline:.0f} MB)")
+
+    print("\n[상태 알림 내용]")
+    states = [s for s, _ in seen]
+    check("음성 불러오는 중 알림이 왔음", "loading" in states, str(set(states)))
+    check("읽는 중 알림이 왔음", "speaking" in states)
+    check("끝나면 idle 로 돌아감", states and states[-1] == "idle",
+          states[-1] if states else "(없음)")
+    check("알림에 어떤 음성인지 담겨 있음",
+          all(key in tts.VOICES for _, key in seen if key))
+    tts.set_status_listener(None)
 
     print("\n[유휴 시 모델 해제]")
     check("지금은 모델이 올라와 있음", tts._engine._voice is not None)

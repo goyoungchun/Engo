@@ -464,19 +464,14 @@ class EntryTab(QWidget):
                                         t("nothing_to_save_body"))
             return
 
-        was_new = self._current_id is None
         self._current_id = repo.save_row(self.table, values, row_id=self._current_id)
         self._clear_dirty()
         self.reload()
         self.dataChanged.emit()
         if not silent:
             self._update_status(t("saved"))
-
-        # Saving something new drops straight back into a blank form, so a run
-        # of entries can be typed without reaching for ＋ 새로 추가 each time.
-        # Editing an existing row keeps that row selected, which is what you
-        # want when you are correcting one item.
-        if was_new and not silent:
+            # Every explicit save drops back into a blank form, so a run of
+            # entries can be typed without reaching for ＋ 새로 추가 each time.
             self.new_entry()
 
     def delete_selected(self) -> None:

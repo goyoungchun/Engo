@@ -7,15 +7,17 @@ copy it however you like (USB, cloud drive, email), read it there.
 from __future__ import annotations
 
 import datetime as _dt
+import threading
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QUrl, Qt, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from .. import db, repo, sync, theme
+from .. import db, repo, sync, theme, update
 from ..i18n import t
 from .common import hint_label, scrollable
 
@@ -28,13 +30,24 @@ def _stamp(ms: int) -> str:
 
 class SyncTab(QWidget):
     dataChanged = Signal()
+    updateAvailable = Signal(bool)
+    # Emitted from the update worker thread; a queued connection hands the
+    # result back to the GUI thread, which is the only one allowed to touch
+    # widgets.
+    _update_done = Signal(object)
 
     def __init__(self, palette: theme.Palette, parent=None):
         super().__init__(parent)
         self.palette = palette
+        self._checking = False
+        self._last_check = None
         self._build()
+        self._update_done.connect(self._on_update_checked)
         self.retranslate()
         self.reload()
+        # Checked when this tab is first built rather than at start-up: the
+        # program should not reach for the network just because it launched.
+        self.check_update()
 
     def _build(self) -> None:
         # The four boxes plus the log need more height than a 720px window
@@ -45,8 +58,9 @@ class SyncTab(QWidget):
         inner.setContentsMargins(16, 14, 16, 14)
         inner.setSpacing(14)
 
-        for box in (self._build_device_box(), self._build_export_box(),
-                    self._build_import_box(), self._build_extra_box()):
+        for box in (self._build_update_box(), self._build_device_box(),
+                    self._build_export_box(), self._build_import_box(),
+                    self._build_extra_box()):
             box.setSizePolicy(box.sizePolicy().horizontalPolicy(),
                               QSizePolicy.Fixed)
             inner.addWidget(box)
@@ -61,6 +75,34 @@ class SyncTab(QWidget):
         outer.addWidget(scrollable(page))
 
     # -- boxes -----------------------------------------------------------
+    def _build_update_box(self) -> QGroupBox:
+        self.update_box_widget = QGroupBox()
+        layout = QVBoxLayout(self.update_box_widget)
+        layout.setSpacing(9)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.update_status = QLabel()
+        self.update_status.setWordWrap(True)
+        row.addWidget(self.update_status, 1)
+
+        self.update_check_btn = QPushButton(self.update_box_widget)
+        self.update_check_btn.clicked.connect(lambda: self.check_update(quiet=False))
+        row.addWidget(self.update_check_btn)
+
+        self.update_apply_btn = QPushButton(self.update_box_widget)
+        self.update_apply_btn.setObjectName("primary")
+        self.update_apply_btn.clicked.connect(self.apply_update)
+        self.update_apply_btn.setVisible(False)
+        row.addWidget(self.update_apply_btn)
+
+        self.update_link_btn = QPushButton(self.update_box_widget)
+        self.update_link_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(update.WEB)))
+        row.addWidget(self.update_link_btn)
+        layout.addLayout(row)
+        return self.update_box_widget
+
     def _build_device_box(self) -> QGroupBox:
         self.device_box = QGroupBox()
         layout = QHBoxLayout(self.device_box)
@@ -168,6 +210,13 @@ class SyncTab(QWidget):
 
     # -- language --------------------------------------------------------
     def retranslate(self) -> None:
+        self.update_box_widget.setTitle(t("update_box"))
+        self.update_check_btn.setText(t("update_check"))
+        self.update_apply_btn.setText(t("update_apply"))
+        self.update_link_btn.setText(t("open_github"))
+        if self._last_check is not None:
+            self._render_update(self._last_check)
+
         self.device_box.setTitle(t("this_device"))
         self.device_name_label.setText(t("device_name"))
 
@@ -358,4 +407,75 @@ class SyncTab(QWidget):
         count = repo.purge_tombstones()
         self._log(t("log_purge", n=count))
         self.reload()
+
+    # -- update ----------------------------------------------------------
+    def check_update(self, quiet: bool = True) -> None:
+        """Ask GitHub whether there is a newer commit.
+
+        Runs on a worker thread: a network call on the GUI thread would freeze
+        the window for however long the connection takes to time out.
+        """
+        if self._checking:
+            return
+        self._checking = True
+        self.update_status.setText(t("update_checking"))
+        self.update_check_btn.setEnabled(False)
+
+        def work():
+            result = update.check()
+            self._update_done.emit(result)
+
+        threading.Thread(target=work, daemon=True, name="update-check").start()
+
+    def _on_update_checked(self, result) -> None:
+        self._checking = False
+        self._last_check = result
+        self.update_check_btn.setEnabled(True)
+        self._render_update(result)
+        self.updateAvailable.emit(result.update_available)
+
+    def _render_update(self, result) -> None:
+        short = (result.local or "")[:7] or "?"
+        show_apply = False
+        show_link = False
+
+        if result.state == update.UP_TO_DATE:
+            text = t("update_latest", rev=short)
+        elif result.state == update.BEHIND:
+            text = t("update_available", n=result.behind or "?", rev=short)
+            show_apply = True
+            show_link = True
+        elif result.state == update.DIVERGED:
+            text = t("update_diverged")
+            show_link = True
+        elif result.state == update.AHEAD:
+            text = t("update_ahead", rev=short)
+            show_link = True
+        elif result.state == update.NO_GIT:
+            text = t("update_nogit")
+            show_link = True
+        elif result.state == update.OFFLINE:
+            text = t("update_offline")
+        else:
+            text = t("update_error")
+            show_link = True
+
+        self.update_status.setText(text)
+        self.update_apply_btn.setVisible(show_apply)
+        self.update_link_btn.setVisible(show_link)
+
+    def apply_update(self) -> None:
+        if update.has_local_changes():
+            QMessageBox.warning(self, t("update_failed"), t("update_dirty"))
+            return
+        self.update_apply_btn.setEnabled(False)
+        ok, message = update.pull()
+        self.update_apply_btn.setEnabled(True)
+        self._log(t("log_update", msg=message.splitlines()[-1] if message else ""))
+        if ok:
+            QMessageBox.information(self, t("update_done"), t("update_done_body"))
+            self.updateAvailable.emit(False)
+            self.check_update()
+        else:
+            QMessageBox.critical(self, t("update_failed"), message or "")
 

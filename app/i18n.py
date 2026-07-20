@@ -219,9 +219,10 @@ S: dict[str, tuple[str, str]] = {
     "menu_hide_tray": ("트레이로 숨기기", "Hide to tray"),
     "menu_theme": ("색 테마", "Colour theme"),
     "menu_voice": ("읽어주기 음성", "Reading voice"),
-    "voice_female": ("여성 목소리", "Female voice"),
-    "voice_male": ("남성 목소리", "Male voice"),
     "voice_off": ("읽어주기 끄기", "Turn reading off"),
+    "tts_loading": ("🔊 음성 바꾸는 중… ({voice})", "🔊 Changing voice… ({voice})"),
+    "tts_speaking": ("🔊 읽는 중… ({voice})", "🔊 Speaking… ({voice})"),
+    "tts_error": ("🔊 음성을 불러오지 못했습니다", "🔊 Could not load the voice"),
     "speak_tip": ("영어를 소리로 듣기  (Ctrl+P)", "Hear the English  (Ctrl+P)"),
     "menu_speak": ("현재 항목 읽어주기", "Read the current item"),
     "menu_language": ("언어 / Language", "Language / 언어"),
@@ -286,6 +287,40 @@ S: dict[str, tuple[str, str]] = {
         "wins. Items on only one side are added, and deletions carry over. "
         "Merging the same file twice changes nothing."),
     "other_box": ("CSV 주고받기 · 백업 · 정리", "CSV · Backup · Clean up"),
+
+    # -- update ---------------------------------------------------------
+    "update_box": ("프로그램 업데이트", "Program update"),
+    "update_check": ("업데이트 확인", "Check for updates"),
+    "update_apply": ("업데이트 설치", "Install update"),
+    "update_checking": ("확인 중…", "Checking…"),
+    "update_latest": ("최신 버전입니다  (버전 {rev})", "Up to date  (version {rev})"),
+    "update_available": ("새 버전이 있습니다 — {n}개의 변경사항  (현재 {rev})",
+                         "An update is available — {n} change(s)  (you have {rev})"),
+    "update_diverged": ("이 컴퓨터에서 코드를 고친 흔적이 있습니다. "
+                        "직접 확인한 뒤 업데이트하세요.",
+                        "This copy has local commits. Review them before updating."),
+    "update_ahead": ("아직 올리지 않은 커밋이 있습니다  (현재 {rev})",
+                     "You have commits that are not pushed yet  (you have {rev})"),
+    "update_nogit": ("git으로 받은 폴더가 아니라 자동 업데이트를 쓸 수 없습니다. "
+                     "아래 주소에서 최신 버전을 받으세요.",
+                     "This is not a git checkout, so it cannot update itself. "
+                     "Get the latest version from the link below."),
+    "update_offline": ("업데이트 확인 실패 — 인터넷 연결을 확인하세요",
+                       "Could not check — no connection to GitHub"),
+    "update_error": ("업데이트 확인 중 문제가 생겼습니다", "Something went wrong while checking"),
+    "update_dirty": ("고친 파일이 있어 업데이트할 수 없습니다.\n\n"
+                     "먼저 변경 사항을 되돌리거나 커밋한 뒤 다시 시도하세요.",
+                     "You have edited files, so the update cannot run.\n\n"
+                     "Revert or commit your changes first, then try again."),
+    "update_done": ("업데이트 완료", "Update finished"),
+    "update_done_body": ("최신 버전으로 업데이트했습니다.\n\n"
+                         "프로그램을 껐다 켜면 적용됩니다.",
+                         "Updated to the latest version.\n\n"
+                         "Restart the program to use it."),
+    "update_failed": ("업데이트 실패", "Update failed"),
+    "log_update": ("업데이트 — {msg}", "Update — {msg}"),
+    "open_github": ("GitHub에서 보기", "View on GitHub"),
+    "tab_data_update": ("5. 데이터 ●", "5. Data ●"),
     "export_csv": ("CSV로 내보내기", "Export CSV"),
     "import_csv": ("CSV 가져오기", "Import CSV"),
     "import_csv_tip": ("엑셀 등에서 정리한 표를 새 항목으로 추가합니다 (병합이 아니라 추가)",
