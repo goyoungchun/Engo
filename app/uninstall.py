@@ -230,10 +230,15 @@ def schedule_deferred(targets: list[Target]) -> bool:
     lines += ['del "%~f0"']
 
     try:
-        script.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8")
+        # CRLF and the machine's ANSI codepage, not UTF-8: cmd.exe reads batch
+        # files in the local codepage and mis-parses LF-only files, and this
+        # one carries a path that may well contain non-ASCII characters.
+        script.write_bytes(("\r\n".join(lines) + "\r\n")
+                           .encode("mbcs" if os.name == "nt" else "utf-8",
+                                   errors="replace"))
         subprocess.Popen(["cmd", "/c", str(script)], cwd=str(PROJECT_DIR),
                          creationflags=_NO_WINDOW)
-    except OSError:
+    except (OSError, UnicodeError):
         return False
     return True
 

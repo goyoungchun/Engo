@@ -1,0 +1,15 @@
+# cmd.exe requires CRLF in batch files. With LF-only endings it seeks by byte
+# offset through the file and resumes mid-line, running fragments of words as
+# if they were commands -- which is exactly what the v1.0.3 release zip did.
+#
+# This matters for `git archive` as much as for checkout: the in-app updater
+# downloads the tag's zip, so whatever ends up in there is what people run.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Everything else: normalise in the repository, leave the working copy alone.
+* text=auto
+*.png binary
+*.onnx binary
+*.qm binary
+*.seb binary
