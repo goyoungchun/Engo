@@ -257,12 +257,16 @@ class JellyFilter(QObject):
 
     def _squash(self, button: QPushButton) -> None:
         rest = self._rest_rect(button)
-        # Width only, plus a 1px nudge downwards. Shrinking the HEIGHT is what
-        # made the button turn square mid-press: Qt draws square corners as
-        # soon as border-radius exceeds half the height, and a pill button
-        # squashed from 35px to 31px crossed exactly that line.
-        dx = max(3, rest.width() // 16)
-        self._animate(button, rest.adjusted(dx, 1, -dx, 1),
+        # Squash both ways now, but the height only a little. Shrinking the
+        # height too far turns the pill square -- Qt draws square corners once
+        # border-radius exceeds half the height -- so the squashed height is
+        # never allowed below twice the corner radius.
+        dx = max(3, rest.width() // 14)
+        dy = max(2, rest.height() // 14)
+        floor = 2 * theme.RADIUS_PILL
+        if rest.height() - 2 * dy < floor:
+            dy = max(0, (rest.height() - floor) // 2)
+        self._animate(button, rest.adjusted(dx, dy, -dx, -dy),
                       QEasingCurve.OutQuad, 90)
 
     def _spring(self, button: QPushButton) -> None:

@@ -224,9 +224,10 @@ def run(app: QApplication, palette) -> None:
               f"(칠해진 색 {colour}, 기대 {palette.primary})")
 
     print("\n[버튼을 누르는 동안 모서리가 둥근 채로 유지되는지]")
-    # Qt draws square corners the moment border-radius exceeds half the
-    # height, so an animation that squashed the height turned the pill into a
-    # rectangle mid-press. The height must not change.
+    # Qt draws square corners the moment border-radius exceeds half the height.
+    # The press animation squashes the height a little now, so what matters is
+    # that it never squashes past that line: the corners must stay round every
+    # frame, and the height, though it shrinks, must not drop below 2*radius.
     from PySide6.QtCore import QElapsedTimer, QEvent, QPoint
     from PySide6.QtGui import QMouseEvent
     from PySide6.QtCore import Qt as _Qt
@@ -247,18 +248,21 @@ def run(app: QApplication, palette) -> None:
                                   y0 + int(widget.height() * scale / 2)).name()
         return corner != middle
 
+    radius_floor = 2 * theme.RADIUS_PILL
     button = expressions.new_btn
     rest_height = button.height()
     app.sendEvent(button, QMouseEvent(
         QEvent.MouseButtonPress, QPoint(5, 5), _Qt.LeftButton, _Qt.LeftButton,
         _Qt.NoModifier))
-    square_frames, wrong_height = 0, 0
+    square_frames, below_floor = 0, 0
+    min_height = rest_height
     for _ in range(5):
         pump(25)
         if not corner_is_round(expressions, button):
             square_frames += 1
-        if button.height() != rest_height:
-            wrong_height += 1
+        min_height = min(min_height, button.height())
+        if button.height() < radius_floor:
+            below_floor += 1
     app.sendEvent(button, QMouseEvent(
         QEvent.MouseButtonRelease, QPoint(5, 5), _Qt.LeftButton, _Qt.LeftButton,
         _Qt.NoModifier))
@@ -266,12 +270,15 @@ def run(app: QApplication, palette) -> None:
         pump(25)
         if not corner_is_round(expressions, button):
             square_frames += 1
-        if button.height() != rest_height:
-            wrong_height += 1
+        if button.height() < radius_floor:
+            below_floor += 1
     pump(300)
     check("누르는 동안 사각형이 되는 프레임 없음", square_frames == 0,
           f"({square_frames}프레임)")
-    check("누르는 동안 높이가 변하지 않음", wrong_height == 0, f"({wrong_height}프레임)")
+    check("누르면 높이도 약간 줄어든다", min_height < rest_height,
+          f"({rest_height} → {min_height})")
+    check("높이가 알약 한계(2*radius) 밑으로는 안 내려간다", below_floor == 0,
+          f"({below_floor}프레임, 한계 {radius_floor})")
     check("애니메이션 후 원래 크기로 복귀", button.height() == rest_height)
 
     print("\n[스크롤바가 둥근 모서리를 침범하지 않는지]")

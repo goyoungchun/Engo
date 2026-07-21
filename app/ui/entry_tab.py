@@ -295,7 +295,6 @@ class EntryTab(QWidget):
         # a widget yet, so addWidget does not reparent anything.
         self.speak_btn = QPushButton("🔊", panel)
         self.speak_btn.setObjectName("speak")
-        self.speak_btn.setFixedWidth(46)
         self.speak_btn.clicked.connect(self.speak_current)
         self.speak_btn.setVisible(tts.installed())
         buttons.addWidget(self.speak_btn)

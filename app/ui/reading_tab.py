@@ -214,7 +214,6 @@ class ReadingTab(QWidget):
         # parentless widget made visible becomes its own top-level window.
         self.speak_btn = QPushButton("🔊", self.right_card)
         self.speak_btn.setObjectName("speak")
-        self.speak_btn.setFixedWidth(46)
         self.speak_btn.clicked.connect(self._speak_selected)
         self.speak_btn.setVisible(tts.installed())
         bar.addWidget(self.speak_btn)

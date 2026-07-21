@@ -163,9 +163,10 @@ def main() -> int:
           all(c.isEnabled() for c in fresh.theme_checks.values()))
     check("과학이 The Conversation 단독으로도 가능",
           "science" in news.available_themes(["conversation"]))
-    check("개수 기본 5", fresh._count_value == 5)
+    check("개수 기본 1", fresh._count_value == 1)
+    check("기본 1이면 − 버튼 비활성", not fresh.minus_btn.isEnabled())
     fresh._step_count(1)
-    check("+ 로 6", fresh._count_value == 6 and fresh.count_label.text() == "6")
+    check("+ 로 2", fresh._count_value == 2 and fresh.count_label.text() == "2")
     for _ in range(20):
         fresh._step_count(-1)
     check("− 는 최소 1에서 멈춘다", fresh._count_value == 1)

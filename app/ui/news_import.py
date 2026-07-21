@@ -133,10 +133,10 @@ class NewsImportDialog(QDialog):
         # plainly than a spin box's tiny arrows.
         count_row = QHBoxLayout()
         count_row.addWidget(QLabel(t("news_count")))
-        self._count_value = 5
+        self._count_value = 1
+        # Plain buttons, so they share the exact shape of every other button.
+        # No jelly reaches them: this dialog is never handed to effects.install.
         self.minus_btn = QPushButton("−", self)   # a real minus sign
-        self.minus_btn.setObjectName("stepper")
-        self.minus_btn.setFixedSize(34, 34)
         self.minus_btn.clicked.connect(lambda: self._step_count(-1))
         count_row.addWidget(self.minus_btn)
         self.count_label = QLabel(str(self._count_value))
@@ -145,10 +145,9 @@ class NewsImportDialog(QDialog):
         self.count_label.setObjectName("countValue")
         count_row.addWidget(self.count_label)
         self.plus_btn = QPushButton("+", self)
-        self.plus_btn.setObjectName("stepper")
-        self.plus_btn.setFixedSize(34, 34)
         self.plus_btn.clicked.connect(lambda: self._step_count(1))
         count_row.addWidget(self.plus_btn)
+        self._step_count(0)          # set the initial enabled/disabled state
         count_row.addStretch(1)
         outer.addLayout(count_row)
 

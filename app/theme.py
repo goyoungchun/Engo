@@ -300,12 +300,9 @@ QPushButton#ghost:hover {{ background: {p.primary_soft}; color: {p.text}; }}
 /* Speak buttons are fixed at 46px wide; the global 16px side padding would
    leave the 🔊 glyph ~12px of content box and clip it at some DPI/font
    combinations. */
-QPushButton#speak {{ padding: 8px 0; min-width: 0; }}
-/* − / + steppers: the base 16px side padding would clip a single glyph in a
-   34px-wide button, so drop it and centre a slightly larger symbol. */
-QPushButton#stepper {{
-    padding: 0; min-width: 0; font-size: 16px; font-weight: 700;
-}}
+/* The 🔊 button: same height and pill shape as its neighbours, just narrower.
+   Not a fixed square -- it kept the same vertical padding so it lines up. */
+QPushButton#speak {{ padding: 8px 12px; min-width: 0; }}
 
 /* ---- misc ------------------------------------------------------------ */
 QGroupBox {{
