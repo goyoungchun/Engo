@@ -161,6 +161,67 @@ S: dict[str, tuple[str, str]] = {
                    "Added {n} sentence(s) to Sentences."),
     "untitled": ("제목 없음", "Untitled"),
 
+    # -- news import ----------------------------------------------------
+    "fetch_news": ("＋ 최신 기사 가져오기", "＋ Fetch recent articles"),
+    "fetch_news_title": ("최신 기사 가져오기", "Fetch recent articles"),
+    "news_intro": ("공부할 영어 지문을 골라온 매체에서 최신순으로 몇 편 가져옵니다. "
+                   "중복 없이 무작위로 섞어서 담습니다.",
+                   "Brings in a few recent articles from the chosen sources as "
+                   "passages to translate — shuffled, with no repeats."),
+    "news_sources": ("매체", "Sources"),
+    "news_themes": ("주제", "Themes"),
+    "news_count": ("가져올 개수", "How many"),
+    "news_fetch_btn": ("가져오기", "Fetch"),
+    "news_fetching": ("기사를 가져오는 중…", "Fetching articles…"),
+    "news_offline": ("인터넷에 연결할 수 없어 기사를 가져오지 못했습니다.",
+                     "Could not reach the internet, so no articles were fetched."),
+    "news_empty": ("새로 가져올 기사가 없습니다. 잠시 뒤 다시 시도하거나 다른 주제를 골라보세요.",
+                   "No new articles right now. Try again later or pick another theme."),
+    "news_need_pick": ("매체와 주제를 하나 이상 골라주세요.",
+                       "Pick at least one source and one theme."),
+    "news_done": ("기사 {n}편을 지문으로 담았습니다.", "Added {n} article(s) as passages."),
+    "news_source_label": ("출처: {name}", "Source: {name}"),
+    "news_open_original": ("원문 보기 ↗", "Read the original ↗"),
+
+    # licences shown next to each source
+    "lic_cc": ("크리에이티브 커먼즈", "Creative Commons"),
+    "lic_public": ("공영방송", "Public broadcaster"),
+    "lic_publicdomain": ("퍼블릭 도메인", "Public domain"),
+
+    # themes
+    "theme_world": ("세계", "World"),
+    "theme_business": ("경제", "Business"),
+    "theme_technology": ("기술", "Technology"),
+    "theme_science": ("과학", "Science"),
+    "theme_health": ("건강", "Health"),
+
+    # the disclaimer -- shown before the first fetch, agreed to once
+    "news_disclaimer_title": ("가져오기 전에 — 잠깐 확인해주세요",
+                              "Before you fetch — please read"),
+    "news_disclaimer_body": (
+        "이 기능은 오직 개인 영어 공부를 위한 것입니다.\n\n"
+        "· 가져온 기사는 저작권이 있는 글입니다. 개인 학습 용도로만 쓰고, "
+        "복제·재배포·공유·상업적 이용을 하지 마세요.\n"
+        "· 각 기사의 출처와 원문 링크가 함께 저장됩니다. 원문은 링크에서 확인하세요.\n"
+        "· 이 기능을 사용해 발생하는 저작권 등 법적 문제에 대한 책임은 "
+        "전적으로 사용자 본인에게 있습니다.\n\n"
+        "재사용이 허용된 매체(크리에이티브 커먼즈·공공·퍼블릭 도메인)만 담았지만, "
+        "이용 방식에 대한 책임은 사용자에게 있습니다.",
+        "This feature is only for your own personal English study.\n\n"
+        "· The articles are copyrighted. Use them for personal study only — do "
+        "not copy, redistribute, share, or use them commercially.\n"
+        "· Each article's source and a link to the original are saved with it. "
+        "Read the original at the link.\n"
+        "· You alone are responsible for any legal issues, copyright included, "
+        "arising from your use of this feature.\n\n"
+        "Only sources that permit reuse (Creative Commons, public, public "
+        "domain) are included, but how you use them is your responsibility."),
+    "news_agree": ("이해했고, 개인 학습 목적으로만 사용하겠습니다",
+                   "I understand and will use this for personal study only"),
+    "news_disclaimer_ok": ("동의하고 계속", "Agree and continue"),
+    "news_disclaimer_reminder": ("개인 학습 전용 · 저작권 준수 · 책임은 사용자 본인",
+                                 "Personal study only · respect copyright · your responsibility"),
+
     # -- sticky notes ---------------------------------------------------
     "sticky": ("복습 메모지", "Review note"),
     "sticky_new": ("📌 복습 메모지 (오늘 공부한 것)", "📌 Review note (today)"),

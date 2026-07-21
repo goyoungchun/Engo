@@ -24,7 +24,7 @@ EDITABLE: dict[str, tuple[str, ...]] = {
         "box", "review_count", "last_reviewed_at",
     ),
     "grammar": ("title", "body", "examples", "tags", "studied_on"),
-    "passages": ("title", "raw_text", "tags", "studied_on"),
+    "passages": ("title", "raw_text", "tags", "studied_on", "source_url"),
     "passage_lines": ("passage_id", "seq", "english", "translation", "note"),
 }
 
@@ -319,7 +319,8 @@ def split_sentences(text: str) -> list[str]:
     return out
 
 
-def create_passage(title: str, raw_text: str, tags: str = "") -> str:
+def create_passage(title: str, raw_text: str, tags: str = "",
+                   source_url: str = "") -> str:
     # One transaction: a crash must not leave a passage with half its lines.
     with db.transaction():
         passage_id = save_row("passages", {
@@ -327,12 +328,30 @@ def create_passage(title: str, raw_text: str, tags: str = "") -> str:
             "raw_text": raw_text,
             "tags": tags,
             "studied_on": today(),
+            "source_url": source_url,
         })
         for seq, sentence in enumerate(split_sentences(raw_text)):
             save_row("passage_lines", {
                 "passage_id": passage_id, "seq": seq, "english": sentence,
             })
     return passage_id
+
+
+def seen_article_guids() -> set[str]:
+    """Guids of articles already brought in, so nothing is imported twice."""
+    rows = db.connect().execute("SELECT guid FROM seen_articles")
+    return {r["guid"] for r in rows}
+
+
+def mark_articles_seen(guids: list[str]) -> None:
+    if not guids:
+        return
+    now = db.now_ms()
+    with db.transaction() as conn:
+        conn.executemany(
+            "INSERT OR IGNORE INTO seen_articles(guid, imported_at) VALUES (?, ?)",
+            [(g, now) for g in guids],
+        )
 
 
 def passage_lines(passage_id: str) -> list[dict[str, Any]]:

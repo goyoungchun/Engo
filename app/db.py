@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS passages (
     title      TEXT NOT NULL DEFAULT '',
     raw_text   TEXT NOT NULL DEFAULT '',
     tags       TEXT NOT NULL DEFAULT '',
-    studied_on TEXT NOT NULL DEFAULT ''
+    studied_on TEXT NOT NULL DEFAULT '',
+    source_url TEXT NOT NULL DEFAULT ''    -- 자동 가져오기한 지문의 원문 링크
 );
 
 -- 3. 지문의 문장별 행. 행 단위로 병합되므로 두 기기에서 서로 다른
@@ -106,6 +107,13 @@ CREATE TABLE IF NOT EXISTS passage_lines (
 CREATE TABLE IF NOT EXISTS app_meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+
+-- 로컬 전용: 자동 가져오기로 이미 받아온 기사. 같은 기사를 두 번 가져오지
+-- 않으려는 것뿐이라 기기마다 달라도 되고, 내보내기·병합에 포함하지 않는다.
+CREATE TABLE IF NOT EXISTS seen_articles (
+    guid        TEXT PRIMARY KEY,
+    imported_at INTEGER NOT NULL DEFAULT 0
 );
 
 -- 로컬 전용: 스티키 메모 창의 위치/크기/옵션. 기기마다 화면이 다르므로
@@ -249,6 +257,7 @@ def connect() -> sqlite3.Connection:
     # because the app is expected to sit in the tray all day.
     conn.execute("PRAGMA cache_size=-2000")
     conn.executescript(_SCHEMA)
+    _migrate(conn)
 
     _set_meta_default(conn, "schema_version", str(SCHEMA_VERSION))
     _set_meta_default(conn, "device_id", uuid.uuid4().hex[:12])
@@ -265,6 +274,19 @@ def connect() -> sqlite3.Connection:
 
     _conn = conn
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Bring an existing database up to the current shape.
+
+    CREATE TABLE IF NOT EXISTS never alters a table that already exists, so a
+    column added to the schema after someone's first run has to be added by
+    hand. Each step checks first and is safe to run every startup.
+    """
+    have = {row["name"] for row in conn.execute("PRAGMA table_info(passages)")}
+    if "source_url" not in have:
+        conn.execute(
+            "ALTER TABLE passages ADD COLUMN source_url TEXT NOT NULL DEFAULT ''")
 
 
 def _set_meta_default(conn: sqlite3.Connection, key: str, value: str) -> None:

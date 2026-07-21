@@ -284,6 +284,11 @@ QPushButton#primary {{
 }}
 QPushButton#primary:hover {{ background: {p.primary_hover}; }}
 QPushButton#primary:pressed {{ background: {p.primary_press}; }}
+/* An ID selector outranks QPushButton:disabled, so a disabled primary needs
+   its own dimmed rule -- otherwise it stays fully coloured and looks live. */
+QPushButton#primary:disabled {{
+    background: {p.surface_alt}; color: {p.text_faint}; font-weight: 600;
+}}
 QPushButton#danger {{ color: {p.danger}; border-color: {p.border_strong}; }}
 QPushButton#danger:hover {{
     background: {p.danger_soft}; border-color: {p.danger}; color: {p.danger};

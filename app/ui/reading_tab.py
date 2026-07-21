@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from .. import repo, theme, tts
 from ..i18n import t
 from .common import ArrowTextEdit, Card, english_font, hint_label
+from .news_import import NewsDisclaimerDialog, NewsImportDialog
 
 COL_NO, COL_EN, COL_TRANS, COL_NOTE = range(4)
 
@@ -125,6 +126,12 @@ class ReadingTab(QWidget):
         self.list.currentItemChanged.connect(self._on_passage_selected)
         layout.addWidget(self.list, 1)
 
+        # Fetch recent articles -- a shortcut to finding English to translate,
+        # above the manual "paste your own" button.
+        self.fetch_btn = QPushButton()
+        self.fetch_btn.clicked.connect(self.fetch_news)
+        layout.addWidget(self.fetch_btn)
+
         row = QHBoxLayout()
         row.setSpacing(8)
         self.add_btn = QPushButton()
@@ -152,6 +159,14 @@ class ReadingTab(QWidget):
         self.title_label = QLabel()
         self.title_label.setObjectName("title")
         head.addWidget(self.title_label, 1)
+
+        # Attribution for a fetched passage: a link back to the original.
+        # Hidden for passages the user pasted themselves.
+        self.source_link = QLabel()
+        self.source_link.setObjectName("hint")
+        self.source_link.setOpenExternalLinks(True)
+        self.source_link.setVisible(False)
+        head.addWidget(self.source_link)
 
         self.progress_label = hint_label()
         head.addWidget(self.progress_label)
@@ -217,6 +232,7 @@ class ReadingTab(QWidget):
 
     def retranslate(self) -> None:
         self.search.setPlaceholderText(t("passage_search"))
+        self.fetch_btn.setText(t("fetch_news"))
         self.add_btn.setText(t("new_passage"))
         self.del_btn.setText(t("delete"))
         self.speak_btn.setToolTip(t("speak_tip"))
@@ -272,6 +288,11 @@ class ReadingTab(QWidget):
         passage = repo.get_row("passages", self._passage_id)
         if passage:
             self.title_label.setText(passage["title"])
+        url = (passage or {}).get("source_url", "")
+        if url:
+            self.source_link.setText(
+                f'<a href="{url}">{t("news_open_original")}</a>')
+        self.source_link.setVisible(bool(url))
         self.head.setVisible(True)
         self._show_lines(repo.passage_lines(self._passage_id))
 
@@ -351,6 +372,27 @@ class ReadingTab(QWidget):
             self.list.blockSignals(False)
 
     # -- actions ---------------------------------------------------------
+    def fetch_news(self) -> None:
+        # The disclaimer, once. It states plainly that this is for personal
+        # study, that copyright must be respected, and that the user carries
+        # any legal responsibility -- and it is not passable without agreeing.
+        if not NewsDisclaimerDialog.already_agreed():
+            gate = NewsDisclaimerDialog(self)
+            agreed = gate.exec() == QDialog.Accepted
+            gate.deleteLater()
+            if not agreed:
+                return
+
+        dialog = NewsImportDialog(self)
+        accepted = dialog.exec() == QDialog.Accepted
+        created = dialog.created
+        dialog.deleteLater()
+        if accepted and created:
+            self.reload()
+            self.dataChanged.emit()
+            QMessageBox.information(self, t("fetch_news_title"),
+                                    t("news_done", n=created))
+
     def new_passage(self) -> None:
         dialog = NewPassageDialog(self)
         if dialog.exec() != QDialog.Accepted:

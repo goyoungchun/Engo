@@ -1,0 +1,181 @@
+"""Fetching articles: parsing, de-duplication, cleaning, and the disclaimer.
+
+The parsing and merge logic run against canned feed bytes so the test is
+deterministic; one live fetch at the end confirms the real feeds still answer
+in the shape the parser expects. The disclaimer gate and passage creation run
+through the real dialogs.
+
+Run:  .venv\\Scripts\\python.exe tests\\test_news.py
+"""
+
+from __future__ import annotations
+
+import os
+import random
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_ROOT = tempfile.mkdtemp(prefix="engo_news_")
+os.environ["ENGO_HOME"] = _ROOT
+os.environ.pop("QT_QPA_PLATFORM", None)
+
+from PySide6.QtWidgets import QApplication, QDialog     # noqa: E402
+
+app = QApplication.instance() or QApplication([])
+
+from app import db, news, repo, theme                   # noqa: E402
+
+db.connect()
+theme.apply(app, "violet")
+
+_failures: list[str] = []
+
+
+def check(label: str, ok: bool, detail: str = "") -> None:
+    if ok:
+        print(f"  ok   {label}{('  ' + detail) if detail else ''}")
+    else:
+        print(f"  FAIL {label}  {detail}")
+        _failures.append(label)
+
+
+RSS = """<?xml version="1.0"?><rss xmlns:content="http://purl.org/rss/1.0/modules/content/">
+<channel>
+ <item><title>First &amp; foremost</title><link>https://ex.com/a</link>
+   <guid>g-a</guid>
+   <description>&lt;p&gt;A short summary that is definitely long enough to keep.&lt;/p&gt;</description></item>
+ <item><title>Second story</title><link>https://ex.com/b</link>
+   <guid>g-b</guid>
+   <content:encoded>&lt;figure&gt;&lt;figcaption&gt;A photo. Getty&lt;/figcaption&gt;&lt;/figure&gt;&lt;p&gt;The real body starts here and runs on for a good while so it survives the length filter.&lt;/p&gt;</content:encoded></item>
+ <item><title>Too short</title><link>https://ex.com/c</link><guid>g-c</guid>
+   <description>tiny</description></item>
+</channel></rss>"""
+
+
+def with_feeds(payload_by_url):
+    original = news._fetch_feed
+    news._fetch_feed = lambda url: payload_by_url.get(url, b"").encode("utf-8") \
+        if isinstance(payload_by_url.get(url, b""), str) else payload_by_url.get(url, b"")
+    return original
+
+
+def main() -> int:
+    print("[정리: HTML·엔티티·이미지 캡션]")
+    check("태그가 제거된다", news.clean("<p>hi <b>there</b></p>") == "hi there")
+    check("엔티티가 풀린다", news.clean("A &amp; B &mdash; C") == "A & B — C")
+    check("이미지 캡션(figure)이 통째로 제거된다",
+          "Getty" not in news.clean(
+              "<figure><figcaption>x Getty</figcaption></figure><p>body</p>"),
+          news.clean("<figure><figcaption>x Getty</figcaption></figure><p>body</p>"))
+    check("깨진 태그 잔해(NPR '/>)가 제거된다",
+          "/>" not in news.clean("emotional support.'/><p>next</p>"),
+          news.clean("emotional support.'/><p>next</p>"))
+    check("진짜 부등호는 유지된다",
+          news.clean("5 > 3 and a < b") == "5 > 3 and a < b")
+    long = "A. " * 2000
+    check("긴 본문은 상한 아래로 잘린다", len(news._cap(long)) <= news.MAX_BODY)
+    check("문장 끝에서 잘린다", news._cap(long).endswith("."))
+
+    print("\n[파싱 · 길이 필터]")
+    url = news.SOURCES[1].feeds["world"]     # NPR world url as a stand-in
+    orig = with_feeds({url: RSS})
+    arts, err = news.fetch(["npr"], ["world"], 10, rng=random.Random(1))
+    news._fetch_feed = orig
+    check("오류 없음", err == "", err)
+    titles = {a.title for a in arts}
+    check("정상 기사 2편만 (너무 짧은 건 제외)", len(arts) == 2, f"({len(arts)}편)")
+    check("엔티티가 제목에서 풀린다", "First & foremost" in titles, str(titles))
+    check("content:encoded 본문이 캡션 없이 온다",
+          any("real body starts" in a.text and "Getty" not in a.text for a in arts))
+    check("링크가 채워진다", all(a.url.startswith("http") for a in arts))
+
+    print("\n[중복 방지]")
+    orig = with_feeds({url: RSS})
+    seen = {"g-a"}
+    arts2, _ = news.fetch(["npr"], ["world"], 10, seen=seen, rng=random.Random(1))
+    news._fetch_feed = orig
+    check("이미 본 기사는 빠진다", all(a.guid != "g-a" for a in arts2),
+          str([a.guid for a in arts2]))
+
+    print("\n[오프라인 · 빈 결과]")
+    orig = news._fetch_feed
+    news._fetch_feed = lambda u: (_ for _ in ()).throw(OSError("no net"))
+    _, e_off = news.fetch(["npr"], ["world"], 5)
+    news._fetch_feed = orig
+    check("연결 실패는 news_offline", e_off == "news_offline", e_off)
+
+    orig = with_feeds({url: "<rss><channel></channel></rss>"})
+    _, e_empty = news.fetch(["npr"], ["world"], 5)
+    news._fetch_feed = orig
+    check("받았지만 새 기사 없으면 news_empty", e_empty == "news_empty", e_empty)
+
+    print("\n[테마 가용성]")
+    check("science 는 The Conversation 이 없다",
+          "conversation" not in [s.key for s in news.SOURCES
+                                 if "science" in s.feeds])
+    check("conversation 만 고르면 science 는 빠진다",
+          "science" not in news.available_themes(["conversation"]),
+          str(news.available_themes(["conversation"])))
+    check("npr 는 5개 테마 모두", set(news.available_themes(["npr"])) == set(news.THEMES))
+
+    print("\n[면책 동의 게이트]")
+    from app.ui.news_import import NewsDisclaimerDialog, NewsImportDialog
+    check("처음엔 동의 전 상태", not NewsDisclaimerDialog.already_agreed())
+    gate = NewsDisclaimerDialog()
+    check("동의 전 '계속' 버튼 비활성", not gate.ok.isEnabled())
+    gate.agree.setChecked(True)
+    check("동의 체크하면 활성화", gate.ok.isEnabled())
+    gate._accept()
+    check("동의가 기억된다", NewsDisclaimerDialog.already_agreed())
+    gate.deleteLater()
+
+    print("\n[가져온 기사가 지문·출처로 저장된다]")
+    orig = with_feeds({url: RSS})
+    dlg = NewsImportDialog()
+    for k, c in dlg.source_checks.items():
+        c.setChecked(k == "npr")
+    for k, c in dlg.theme_checks.items():
+        c.setChecked(k == "world")
+    # run the fetch synchronously by calling the worker path directly
+    arts3, err3 = news.fetch(["npr"], ["world"], 10, rng=random.Random(2))
+    dlg._on_done(arts3, err3)
+    news._fetch_feed = orig
+    check("지문이 만들어졌다", dlg.created == 2, f"({dlg.created})")
+    passages = repo.list_rows("passages", limit=50)
+    check("지문에 출처 링크가 저장된다",
+          all(repo.get_row("passages", p["id"]).get("source_url", "").startswith("http")
+              for p in passages), str(len(passages)))
+    a_pass = repo.get_row("passages", passages[0]["id"])
+    check("출처·테마가 태그에 담긴다", "NPR" in a_pass["tags"], a_pass["tags"])
+    check("본문이 문장으로 나뉜다", len(repo.passage_lines(passages[0]["id"])) >= 1)
+    check("다시 가져오면 같은 기사는 안 온다 (seen 기록)",
+          all(a.guid not in repo.seen_article_guids()
+              for a in news.fetch(["npr"], ["world"], 5,
+                                  seen=repo.seen_article_guids())[0]))
+    dlg.deleteLater()
+
+    print("\n[실제 피드 한 번 -- 모양 확인]")
+    live, err_live = news.fetch(["npr"], ["world"], 3)
+    if err_live == "news_offline":
+        print("  건너뜀: 네트워크 없음")
+    else:
+        check("실제로 기사가 온다", len(live) >= 1, f"({len(live)}편, err={err_live})")
+        check("제목과 본문이 있다",
+              all(a.title and len(a.text) >= 30 for a in live))
+
+    db.close()
+    shutil.rmtree(_ROOT, ignore_errors=True)
+
+    print()
+    if _failures:
+        print(f"실패 {len(_failures)}건: {', '.join(_failures)}")
+        return 1
+    print("모든 뉴스 가져오기 테스트 통과")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
