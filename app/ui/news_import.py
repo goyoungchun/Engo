@@ -129,6 +129,17 @@ class NewsImportDialog(QDialog):
             theme_grid.addWidget(check, i // 3, i % 3)
         outer.addWidget(theme_box)
 
+        # Length -- short / medium / long, by sentence count. All on means any.
+        length_box = QGroupBox(t("news_length"))
+        length_grid = QGridLayout(length_box)
+        self.length_checks: dict[str, QCheckBox] = {}
+        for i, key in enumerate(news.LENGTHS):
+            check = QCheckBox(t(f"len_{key}"))
+            check.setChecked(True)
+            self.length_checks[key] = check
+            length_grid.addWidget(check, 0, i)
+        outer.addWidget(length_box)
+
         # Count -- explicit − / + buttons around the number, which reads more
         # plainly than a spin box's tiny arrows.
         count_row = QHBoxLayout()
@@ -211,9 +222,15 @@ class NewsImportDialog(QDialog):
 
         count = self._count_value
         seen = repo.seen_article_guids()
+        # All (or none) checked means "any length" -- pass None so nothing is
+        # filtered out and no extra page fetches are spent looking for a match.
+        lengths = [k for k, c in self.length_checks.items() if c.isChecked()]
+        if len(lengths) == len(news.LENGTHS):
+            lengths = None
 
         def work():
-            articles, error = news.fetch(sources, themes, count, seen=seen)
+            articles, error = news.fetch(sources, themes, count, seen=seen,
+                                         lengths=lengths)
             try:
                 self._done.emit(articles, error)
             except RuntimeError:

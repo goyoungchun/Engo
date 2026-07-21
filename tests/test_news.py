@@ -146,6 +146,34 @@ def main() -> int:
     check("관련기사 위젯은 제외된다", "related junk" not in body)
     check("태그 속성 잔재가 없다", "wsw" not in body and 'class=' not in body)
     check("엔티티가 풀린다", "—" in body)
+    check("NPR 도 페이지 본문을 가져온다", news.SOURCE_BY_KEY["npr"].fetch_page)
+    check("VOA 는 본문 없는 페이지를 버린다",
+          news.SOURCE_BY_KEY["voa"].drop_if_no_body)
+
+    print("\n[이미지 캡션/크레딧 제거]")
+    cap_page = ('<div id="storytext">'
+                '<div class="bucketwrap image"><picture><img alt="a photo" /></picture>'
+                '<div class="credit-caption"><div class="caption">'
+                '<p>A protester marches in the street. '
+                '<b class="credit">Vipin/AP</b></p></div></div></div>'
+                '<p>NEW DELHI — The real article starts here and continues on.</p>'
+                '<p>The tax credit helped families this year.</p></div>')
+    orig_ff2 = news._fetch_feed
+    news._fetch_feed = lambda u: cap_page.encode("utf-8")
+    npr_body = news._article_body("https://www.npr.org/x")
+    news._fetch_feed = orig_ff2
+    check("이미지 캡션이 첫 문장이 되지 않는다",
+          npr_body.startswith("NEW DELHI"), npr_body[:40])
+    check("'credit'라는 단어가 든 본문 문장은 살아남는다",
+          "tax credit helped" in npr_body)
+    check("(Image credit:...) 는 제거된다",
+          "Image credit" not in news.clean(
+              "Body here. (Image credit: Vipin)"))
+
+    print("\n[지문 길이 분류]")
+    check("10문장 이하 short", news.length_category_by_count(6) == "short")
+    check("11~25 medium", news.length_category_by_count(18) == "medium")
+    check("26 이상 long", news.length_category_by_count(40) == "long")
 
     print("\n[중복 방지]")
     orig = with_feeds({url: RSS})
@@ -154,6 +182,27 @@ def main() -> int:
     news._fetch_feed = orig
     check("이미 본 기사는 빠진다", all(a.guid != "g-a" for a in arts2),
           str([a.guid for a in arts2]))
+
+    print("\n[길이 필터로 가져오기]")
+    long_body = " ".join(f"Sentence number {i} here now." for i in range(40))
+    feed = ("<rss><channel>"
+            "<item><title>Short piece</title><link>https://ex.com/s</link>"
+            "<guid>len-s</guid><description>Just one short sentence, but long "
+            "enough to clear the minimum length filter comfortably.</description></item>"
+            f"<item><title>Long piece</title><link>https://ex.com/l</link>"
+            f"<guid>len-l</guid><description>{long_body}</description></item>"
+            "</channel></rss>")
+    url_len = news.SOURCES[1].feeds["world"]
+    orig = with_feeds({url_len: feed})
+    short_only, _ = news.fetch(["npr"], ["world"], 5, lengths={"short"},
+                              rng=random.Random(1))
+    long_only, _ = news.fetch(["npr"], ["world"], 5, lengths={"long"},
+                             rng=random.Random(1))
+    news._fetch_feed = orig
+    check("짧은 글만 요청하면 짧은 것만", [a.guid for a in short_only] == ["len-s"],
+          str([a.guid for a in short_only]))
+    check("긴 글만 요청하면 긴 것만", [a.guid for a in long_only] == ["len-l"],
+          str([a.guid for a in long_only]))
 
     print("\n[오프라인 · 빈 결과]")
     orig = news._fetch_feed
@@ -198,6 +247,9 @@ def main() -> int:
           all(c.isEnabled() for c in fresh.theme_checks.values()))
     check("과학이 The Conversation 단독으로도 가능",
           "science" in news.available_themes(["conversation"]))
+    check("길이 선택이 3개(짧음/중간/김)", len(fresh.length_checks) == 3)
+    check("길이 기본은 모두 선택", all(c.isChecked()
+          for c in fresh.length_checks.values()))
     check("개수 기본 1", fresh._count_value == 1)
     check("기본 1이면 − 버튼 비활성", not fresh.minus_btn.isEnabled())
     fresh._step_count(1)

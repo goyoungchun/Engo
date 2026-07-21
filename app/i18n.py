@@ -178,6 +178,7 @@ S: dict[str, tuple[str, str]] = {
                    "passages to translate — shuffled, with no repeats."),
     "news_sources": ("매체", "Sources"),
     "news_themes": ("주제", "Themes"),
+    "news_length": ("길이", "Length"),
     "news_count": ("가져올 개수", "How many"),
     "news_fetch_btn": ("가져오기", "Fetch"),
     "news_fetching": ("기사를 가져오는 중…", "Fetching articles…"),

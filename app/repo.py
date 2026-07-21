@@ -323,10 +323,33 @@ def split_sentences(text: str) -> list[str]:
             continue
         buf = ""
         i = 0
+        in_quote = False       # inside "..." a full stop is not a sentence end
         while i < len(block):
             ch = block[i]
             buf += ch
-            if ch in ".!?":
+            # Track double-quote spans. A quote can hold several sentences --
+            # '"You hissed the lecture. You tasted the whole worm!"' -- and the
+            # reader wants the quotation kept whole, so punctuation inside it
+            # does not break. Curly quotes are directional; a straight " toggles.
+            closed = False
+            if ch == "“":
+                in_quote = True
+            elif ch == "”":
+                in_quote, closed = False, True
+            elif ch == '"':
+                closed = in_quote
+                in_quote = not in_quote
+            # When a quotation closes a sentence -- punctuation right before the
+            # closing quote, a capital or the end just after it -- the sentence
+            # ends there: '..."Goodbye now." Then he left.' is two sentences.
+            if closed and len(buf) >= 2 and buf[-2] in ".!?":
+                rest = block[i + 1:].lstrip()
+                if rest == "" or rest[:1].isupper():
+                    out.append(buf.strip())
+                    buf = ""
+                    i += 1
+                    continue
+            if ch in ".!?" and not in_quote:
                 # don't break inside "Mr." / "e.g." / decimals like 3.5
                 if ch == "." and i + 1 < len(block) and block[i + 1].isdigit():
                     i += 1

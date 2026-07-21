@@ -22,18 +22,9 @@ from .news_import import NewsDisclaimerDialog, NewsImportDialog
 
 COL_NO, COL_EN, COL_TRANS, COL_NOTE = range(4)
 
-# Passage length by sentence count, so a reader can pick a quick one or settle
-# into a long one. A VOA brief is a handful of sentences; a full Conversation
-# feature runs past thirty.
-_LEN_MEDIUM_MIN, _LEN_LONG_MIN = 11, 26
-
-
 def _length_label(sentences: int) -> str:
-    if sentences < _LEN_MEDIUM_MIN:
-        return t("len_short")
-    if sentences < _LEN_LONG_MIN:
-        return t("len_medium")
-    return t("len_long")
+    # The same thresholds the fetch dialog filters by.
+    return t("len_" + news.length_category_by_count(sentences))
 
 
 class WrapTextDelegate(QStyledItemDelegate):

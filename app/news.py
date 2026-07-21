@@ -65,9 +65,13 @@ class Source:
     licence_key: str          # i18n key describing why reuse is allowed
     feeds: dict               # theme -> feed url
     # True when the feed carries only a summary and the full text has to be
-    # read from the article page. Done only for public-domain sources (VOA),
-    # where fetching the page is unquestionably fine.
+    # read from the article page (VOA, NPR).
     fetch_page: bool = False
+    # True when a page with no article prose means "not an article" and the
+    # item should be dropped -- VOA feeds mix in video-programme pages whose
+    # only text is a teaser. NPR always has a usable summary, so it falls back
+    # instead of dropping.
+    drop_if_no_body: bool = False
 
 
 _VOA = "https://www.voanews.com/api/"
@@ -89,14 +93,16 @@ SOURCES = (
         "technology": "https://feeds.npr.org/1019/rss.xml",
         "science":    "https://feeds.npr.org/1007/rss.xml",
         "health":     "https://feeds.npr.org/1128/rss.xml",
-    }),
+    }, fetch_page=True),
     Source("voa", "VOA", "lic_publicdomain", {
-        "world":      _VOA + "zumgqol-vomx-tpeg--qi",   # International Edition
+        # Not "International Edition" -- that feed is video programmes with no
+        # prose. Europe is VOA's international-news feed of actual articles.
+        "world":      _VOA + "zjbovl-vomx-tpebvmr",     # Europe
         "business":   _VOA + "zyboql-vomx-tpetvmi",     # Economy
         "technology": _VOA + "zyritl-vomx-tpettmq",     # Technology
         "science":    _VOA + "ztbopl-vomx-tpekvmm",     # Science & Health
         "health":     _VOA + "ztbopl-vomx-tpekvmm",     # (VOA folds the two)
-    }, fetch_page=True),
+    }, fetch_page=True, drop_if_no_body=True),
 )
 
 SOURCE_BY_KEY = {s.key: s for s in SOURCES}
@@ -145,6 +151,10 @@ _FIGURE = re.compile(r"<(figure|figcaption)[^>]*>.*?</\1>", re.S | re.I)
 _FINEPRINT = re.compile(
     r"<(p|div)[^>]*class=[\"'][^\"']*fine-print[^\"']*[\"'][^>]*>.*?</\1>",
     re.S | re.I)
+# A photo credit tacked onto the text -- NPR appends "(Image credit: Vipin)".
+# It is about the picture, not the article, and was landing as its own row.
+_IMGCREDIT = re.compile(r"\(\s*(?:image\s+credit|photo|credit)\s*:[^)]*\)",
+                        re.I)
 _SPACE = re.compile(r"[ \t ]+")
 _BLANK = re.compile(r"\n\s*\n+")
 _ENTITY = {"&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"',
@@ -167,6 +177,7 @@ def clean(raw: str) -> str:
     text = _SCRIPT.sub(" ", raw)
     text = _FIGURE.sub(" ", text)
     text = _FINEPRINT.sub(" ", text)
+    text = _IMGCREDIT.sub(" ", text)
     # Headings become their own line -- marked with a sentinel, not a newline,
     # so the whitespace collapse below leaves them standing alone. Inner tags
     # (a linked heading, say) are cleared by _TAG next.
@@ -268,17 +279,27 @@ def _fetch_feed(url: str) -> bytes:
         return response.read()
 
 
-# VOA's article body sits in this container; everything after it is share
-# widgets and related-story links.
-_BODY_MARKERS = ('id="article-content"', 'class="wsw"')
+# Where the article prose lives on a page: VOA uses article-content / wsw,
+# NPR uses storytext. Everything after the body is share widgets and links.
+_BODY_MARKERS = ('id="article-content"', 'class="wsw"', 'id="storytext"')
 _BODY_END = ('class="c-mmp', 'class="region', 'class="share',
              'id="comments', 'class="related', 'class="c-article-links')
+# \b after the tag name so "<p" does not also match "<picture" -- which,
+# because the backreference then closes on the caption's </p>, dragged the
+# lead image's caption in as if it were the first paragraph.
+_PARA = re.compile(r"<(p|h[23])\b[^>]*>(.*?)</\1>", re.S | re.I)
+# An image caption/credit block, spotted by its HTML markup -- NPR wraps the
+# caption in class="caption"/class="credit"/class="hide-caption" -- so a body
+# sentence that merely says the word "credit" is not mistaken for one.
+_CAPTION = re.compile(r'class="[^"]*(?:credit|caption|hide-caption)'
+                      r'|aria-label="Image', re.I)
 
 
 def _article_body(url: str) -> str:
-    """The full article text from its page, for feeds that carry only a
-    summary. Used for VOA (public domain). Returns '' on any failure, so the
-    caller keeps the summary rather than losing the article.
+    """The article's prose, read from its page, for feeds that carry only a
+    summary (VOA, NPR). Returns '' when the page has no real article body --
+    a VOA video-programme page, say -- so the caller can drop or fall back
+    rather than keep a teaser. Never raises.
     """
     try:
         raw = _fetch_feed(url).decode("utf-8", "replace")
@@ -291,15 +312,44 @@ def _article_body(url: str) -> str:
             break
     if start < 0:
         return ""
-    start = raw.find(">", start) + 1          # skip past the container's tag
-    if start <= 0:
-        return ""
-    region = raw[start:start + 30000]
+    region = raw[start:start + 40000]
     for marker in _BODY_END:                  # stop before the trailing widgets
         cut = region.find(marker, 200)
         if cut > 0:
             region = region[:cut]
-    return _cap(clean(region))
+    # Take the paragraphs (and any subheadings) in order. Pulling <p> rather
+    # than cleaning the whole region leaves out image captions and credits,
+    # which sit in their own elements.
+    parts: list[str] = []
+    for match in _PARA.finditer(region):
+        if _CAPTION.search(match.group(0)):   # an image caption/credit block
+            continue
+        text = clean(match.group(2))
+        if not text or _IMGCREDIT.search(text):
+            continue
+        if match.group(1).lower().startswith("h"):
+            text = "## " + text
+        parts.append(text)
+    return _cap("\n".join(parts))
+
+
+# Passage length, by sentence count -- the same thresholds the reading tab
+# shows as 짧음 / 중간 / 김.
+LENGTHS = ("short", "medium", "long")
+LENGTH_MEDIUM_MIN, LENGTH_LONG_MIN = 11, 26
+
+
+def length_category_by_count(sentences: int) -> str:
+    if sentences < LENGTH_MEDIUM_MIN:
+        return "short"
+    if sentences < LENGTH_LONG_MIN:
+        return "medium"
+    return "long"
+
+
+def length_category(text: str) -> str:
+    from . import repo        # split with the same splitter the tab counts by
+    return length_category_by_count(len(repo.split_sentences(text)))
 
 
 def available_themes(source_keys) -> list[str]:
@@ -311,16 +361,17 @@ def available_themes(source_keys) -> list[str]:
 
 
 def fetch(source_keys, theme_keys, count, seen=None, should_stop=None,
-          progress=None, rng=None):
+          progress=None, rng=None, lengths=None):
     """Pull recent articles for the chosen sources/themes.
 
     Returns (articles, error). `error` is an i18n key ('' on success):
     'news_offline' if nothing could be reached, 'news_empty' if every feed
-    came back but held nothing new after de-duplication.
+    came back but held nothing new after de-duplication and filtering.
 
-    Never raises. Already-seen guids (from repo) are excluded; the rest are
-    shuffled and the first `count` returned, so the same articles do not come
-    back run after run.
+    `lengths`, if given, is a set of 'short'/'medium'/'long' to keep. Never
+    raises. Already-seen guids (from repo) are excluded; the rest are shuffled
+    and the first `count` that survive the filters returned, so the same
+    articles do not come back run after run.
     """
     seen = set(seen or ())
     rng = rng or random
@@ -355,17 +406,31 @@ def fetch(source_keys, theme_keys, count, seen=None, should_stop=None,
     if not pool:
         return [], "news_empty"
     rng.shuffle(pool)
-    chosen = pool[:count]
 
-    # Only now, for the handful actually chosen, read the full body from the
-    # page where the feed gave only a summary (VOA). Doing it here rather than
-    # per feed item avoids fetching pages for articles that get dropped.
-    for article in chosen:
+    # Walk the shuffled pool, reading the full page body where the feed gave
+    # only a summary (VOA, NPR), dropping pages that turn out not to be
+    # articles, and keeping only the chosen lengths -- until `count` survive.
+    # Page fetches are capped so a strict filter cannot scan the pool forever.
+    wanted = set(lengths) if lengths else None
+    budget = count * 8 + 24
+    chosen: list[Article] = []
+    for article in pool:
+        if len(chosen) >= count or budget <= 0:
+            break
+        if should_stop and should_stop():
+            break
         source = SOURCE_BY_KEY.get(article.source_key)
         if source and source.fetch_page and article.url:
-            if should_stop and should_stop():
-                break
+            budget -= 1
             full = _article_body(article.url)
-            if len(full) > len(article.text):
+            if full:
                 article.text = full
+            elif source.drop_if_no_body:
+                continue          # a video-programme page, not an article
+        if wanted is not None and length_category(article.text) not in wanted:
+            continue
+        chosen.append(article)
+
+    if not chosen:
+        return [], "news_empty"
     return chosen, ""

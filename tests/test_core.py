@@ -75,6 +75,16 @@ def test_sentence_split() -> None:
     am = repo.split_sentences("She left at 9 a.m. He stayed behind.")
     check("소문자 약어 뒤 대문자는 분리 유지", len(am), 2)
 
+    # A quotation is kept whole even when it holds several sentences.
+    quote = repo.split_sentences(
+        "“You have hissed the mystery lecture. In fact, you’ve tasted the "
+        "whole worm!”")
+    check("여러 문장을 담은 인용문은 한 문장", len(quote), 1)
+    embedded = repo.split_sentences('He said, "Hello. Bye." Then he left.')
+    check("인용이 문장을 끝내면 그 뒤는 새 문장", len(embedded), 2)
+    trailing = repo.split_sentences('The report said “prices rose.” Markets fell.')
+    check("인용 종료 후 대문자 문장 분리", len(trailing), 2)
+
 
 def test_crud_and_tombstone() -> None:
     print("\n[기본 저장 · 삭제]")
