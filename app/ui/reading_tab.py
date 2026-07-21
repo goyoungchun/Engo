@@ -7,7 +7,7 @@ translation cell and a self-feedback note cell.
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QTextDocument
+from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut, QTextDocument
 from PySide6.QtWidgets import (
     QAbstractItemView, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
@@ -169,7 +169,13 @@ class ReadingTab(QWidget):
         self.list.setTextElideMode(Qt.ElideRight)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list.setWordWrap(False)
+        # Ctrl/Shift-click to select several passages and delete them at once,
+        # the same as the tables in the other tabs.
+        self.list.setSelectionMode(QListWidget.ExtendedSelection)
         self.list.currentItemChanged.connect(self._on_passage_selected)
+        delete_key = QShortcut(QKeySequence.Delete, self.list)
+        delete_key.setContext(Qt.WidgetShortcut)
+        delete_key.activated.connect(self.delete_passage)
         layout.addWidget(self.list, 1)
 
         # Fetch recent articles -- a shortcut to finding English to translate,
@@ -511,18 +517,31 @@ class ReadingTab(QWidget):
         self.dataChanged.emit()
 
     def delete_passage(self) -> None:
-        if not self._passage_id:
+        # Every selected passage, not just the current one. Falls back to the
+        # current passage when nothing is multi-selected.
+        ids = [self.list.item(i).data(Qt.UserRole)
+               for i in range(self.list.count())
+               if self.list.item(i).isSelected()]
+        if not ids and self._passage_id:
+            ids = [self._passage_id]
+        if not ids:
             return
-        passage = repo.get_row("passages", self._passage_id)
+
+        if len(ids) == 1:
+            passage = repo.get_row("passages", ids[0])
+            body = t("delete_passage_body",
+                     title=passage["title"] if passage else "")
+        else:
+            body = t("delete_passages_body", n=len(ids))
         answer = QMessageBox.question(
-            self, t("delete_passage"),
-            t("delete_passage_body", title=passage["title"] if passage else ""),
+            self, t("delete_passage"), body,
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
         )
         if answer != QMessageBox.Yes:
             return
-        repo.soft_delete("passages", [self._passage_id])
-        self._passage_id = None
+        repo.soft_delete("passages", ids)      # cascades to each passage's lines
+        if self._passage_id in ids:
+            self._passage_id = None
         self.reload()
         self.dataChanged.emit()
 

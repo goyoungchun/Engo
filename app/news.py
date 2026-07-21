@@ -153,6 +153,13 @@ _ENTITY = {"&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"',
            "&rdquo;": "”", "&hellip;": "…"}
 
 
+_WS = re.compile(r"\s+")
+# A sentinel for a heading's line break that the whitespace collapse cannot
+# eat. A private-use code point, deliberately: Python counts the ASCII
+# separators \x1c-\x1f as whitespace, so `\s+` would have swallowed those.
+_HSEP = ""
+
+
 def clean(raw: str) -> str:
     """HTML fragment -> plain text a person can read and translate."""
     if not raw:
@@ -160,10 +167,10 @@ def clean(raw: str) -> str:
     text = _SCRIPT.sub(" ", raw)
     text = _FIGURE.sub(" ", text)
     text = _FINEPRINT.sub(" ", text)
-    # Turn headings into their own marked line before the tags are stripped,
-    # so the paragraph structure that tells a heading from body text is not
-    # lost. Inner tags (a linked heading, say) are cleared by _TAG next.
-    text = _HEADING.sub(r"\n\n## \1\n\n", text)
+    # Headings become their own line -- marked with a sentinel, not a newline,
+    # so the whitespace collapse below leaves them standing alone. Inner tags
+    # (a linked heading, say) are cleared by _TAG next.
+    text = _HEADING.sub(_HSEP + r"## \1" + _HSEP, text)
     text = _TAG.sub(" ", text)
     # Feeds carry malformed HTML -- NPR ends an image tag as a bare
     # `...support.'/>`. Once well-formed tags are gone, a tag-close remnant
@@ -174,8 +181,15 @@ def clean(raw: str) -> str:
     for entity, char in _ENTITY.items():
         text = text.replace(entity, char)
     text = re.sub(r"&#(\d+);", lambda m: chr(int(m.group(1))), text)
-    text = _SPACE.sub(" ", text)
-    text = _BLANK.sub("\n", text)
+    # Collapse every run of whitespace -- including newlines the source used
+    # only to wrap its markup -- to one space, so a dateline like
+    # "CAPE CANAVERAL, Florida —" joins the sentence it introduces rather than
+    # standing alone. Sentence breaks come from punctuation, not from where the
+    # HTML happened to wrap. The heading sentinels then become real lines.
+    text = _WS.sub(" ", text)
+    text = text.replace(_HSEP, "\n")
+    text = re.sub(r" *\n *", "\n", text)
+    text = re.sub(r"\n+", "\n", text)
     return text.strip()
 
 

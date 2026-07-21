@@ -158,6 +158,9 @@ S: dict[str, tuple[str, str]] = {
     "delete_passage": ("지문 삭제", "Delete passage"),
     "delete_passage_body": ("'{title}' 지문과 해석을 모두 삭제할까요?",
                             "Delete '{title}' and all its translations?"),
+    "delete_passages_body": ("선택한 지문 {n}개와 해석을 모두 삭제할까요?",
+                             "Delete the {n} selected passages and all their "
+                             "translations?"),
     "no_selection": ("선택 없음", "Nothing selected"),
     "no_selection_body": ("보낼 문장의 행을 먼저 고르세요.",
                           "Select the rows you want to send first."),

@@ -200,6 +200,29 @@ def run() -> None:
     check("진행 표시가 소제목을 세지 않는다 (4문장)",
           "/ 4" in tab.progress_label.text(), tab.progress_label.text())
 
+    print("\n[지문 여러 개 선택 삭제]")
+    from PySide6.QtWidgets import QListWidget, QMessageBox
+    check("지문 목록이 다중 선택 모드",
+          tab.list.selectionMode() == QListWidget.ExtendedSelection)
+    for _ in range(4):
+        repo.create_passage("지울 지문", "One here. Two here.")
+    tab.reload()
+    pump(150)
+    before = repo.count_rows("passages")
+    # exactly three: clear the reload's current-item selection first
+    tab.list.clearSelection()
+    for i in range(3):
+        tab.list.item(i).setSelected(True)
+    pump(50)
+    original = QMessageBox.question
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+    tab.delete_passage()
+    QMessageBox.question = original
+    pump(150)
+    check("선택한 3개가 한 번에 지워졌다",
+          repo.count_rows("passages") == before - 3,
+          f"({before} → {repo.count_rows('passages')})")
+
     win.prepare_quit()
     win.close()
     tts.shutdown()

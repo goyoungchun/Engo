@@ -92,6 +92,20 @@ def main() -> int:
     check("소제목이 한 줄로 분리된다", "## Heading Here" in split, str(split))
     check("진짜 부등호는 유지된다",
           news.clean("5 > 3 and a < b") == "5 > 3 and a < b")
+
+    print("\n[데이트라인이 다음 문장과 합쳐진다]")
+    # A news dateline sits on its own line in the source HTML; it must join the
+    # sentence it introduces, not stand alone.
+    dl = repo.split_sentences(news.clean(
+        "<p>CAPE CANAVERAL, Florida &mdash; \n A company launched a lander "
+        "Wednesday, aiming for the south pole.</p><p>It carried a drone.</p>"))
+    check("데이트라인이 첫 문장에 붙는다",
+          dl[0].startswith("CAPE CANAVERAL, Florida — A company"), repr(dl[0]))
+    check("문장은 마침표 기준으로만 나뉜다", len(dl) == 2, str(dl))
+    # ...while a heading still stands on its own line
+    hd = repo.split_sentences(news.clean(
+        "<p>Body one.</p><h2>Section</h2><p>Body two.</p>"))
+    check("소제목은 여전히 별도 줄", "## Section" in hd, str(hd))
     # Longer than the sanity ceiling, so the cap actually engages.
     long = "A sentence. " * (news.MAX_BODY // 8)
     check("상한을 넘는 본문만 잘린다", len(news._cap(long)) <= news.MAX_BODY)
