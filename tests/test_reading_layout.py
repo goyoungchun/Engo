@@ -232,6 +232,29 @@ def run() -> None:
     check("병합이 양쪽 해석을 보존", repo.passage_lines(mp)[0]["translation"] == "가 나",
           repo.passage_lines(mp)[0]["translation"])
 
+    print("\n[합친 문장을 다시 나누기]")
+    sp = repo.create_passage("Split test", "Alpha one. Beta two. Gamma three.")
+    tab.reload()
+    _select(tab, sp)
+    pump(150)
+    lines = repo.passage_lines(sp)
+    repo.save_row("passage_lines", {"translation": "하나"}, row_id=lines[0]["id"])
+    tab._merge_rows([0, 1, 2])            # collapse all three into one line
+    pump(100)
+    check("합치면 1문장", len(repo.passage_lines(sp)) == 1)
+    tab._split_row(0)                     # ...and split it straight back
+    pump(100)
+    back = repo.passage_lines(sp)
+    check("나누면 다시 3문장", len(back) == 3, str(len(back)))
+    check("나눈 순서·내용이 원래대로",
+          [ln["english"] for ln in back] ==
+          ["Alpha one.", "Beta two.", "Gamma three."],
+          str([ln["english"] for ln in back]))
+    check("나눈 첫 조각이 합친 해석을 유지", back[0]["translation"] == "하나",
+          back[0]["translation"])
+    check("나눈 문장 seq가 0..2 연속",
+          [ln["seq"] for ln in back] == [0, 1, 2], str([ln["seq"] for ln in back]))
+
     print("\n[출처 링크 무해화 -- 병합으로 들어온 값도 데이터일 뿐]")
     bad = repo.create_passage("의심 링크", "One sentence here.",
                               source_url="javascript:alert(1)")

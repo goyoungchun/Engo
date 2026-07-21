@@ -477,11 +477,20 @@ class ReadingTab(QWidget):
         merge.setEnabled(adjacent)
         if len(rows) >= 2 and not adjacent:
             merge.setText(t("merge_need_adjacent"))
+        # Split: undo a merge -- offered only for a single row whose English
+        # actually breaks into two or more sentences.
+        split = None
+        if len(rows) == 1 and rows[0] < len(self._line_ids):
+            line = repo.get_row("passage_lines", self._line_ids[rows[0]])
+            if line and len(repo.split_sentences(line["english"])) >= 2:
+                split = menu.addAction(t("split_sentence"))
         delete = menu.addAction(t("delete_sentence"))
         chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
 
         if chosen is merge and adjacent:
             self._merge_rows(rows)
+        elif split is not None and chosen is split:
+            self._split_row(rows[0])
         elif chosen is delete:
             self._delete_rows(rows)
 
@@ -494,6 +503,18 @@ class ReadingTab(QWidget):
         if survivor:                    # keep the merged row selected
             for i, lid in enumerate(self._line_ids):
                 if lid == survivor:
+                    self.table.selectRow(i)
+                    break
+        self.dataChanged.emit()
+
+    def _split_row(self, row: int) -> None:
+        if row >= len(self._line_ids):
+            return
+        ids = repo.split_passage_line(self._line_ids[row])
+        self._reload_lines()
+        if ids:                             # keep the first piece selected
+            for i, lid in enumerate(self._line_ids):
+                if lid == ids[0]:
                     self.table.selectRow(i)
                     break
         self.dataChanged.emit()

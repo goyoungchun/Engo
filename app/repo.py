@@ -510,6 +510,43 @@ def delete_passage_lines(line_ids: Sequence[str]) -> None:
     soft_delete("passage_lines", list(line_ids))
 
 
+def split_passage_line(line_id: str) -> list[str] | None:
+    """Break one line's English back into its sentences (undo a merge).
+
+    The first sentence stays on the original row, keeping its translation and
+    note; each further sentence becomes a new row inserted right after it. The
+    joined translation/note cannot be divided, so they stay on the first row.
+    Every following line is renumbered to keep the passage in order. Returns the
+    resulting line ids in order, or None if the English is a single sentence.
+    """
+    row = get_row("passage_lines", line_id)
+    if not row:
+        return None
+    pieces = split_sentences(row["english"])
+    if len(pieces) < 2:
+        return None
+    passage_id = row["passage_id"]
+    result: list[str] = []
+    with db.transaction():
+        seq = 0
+        for ln in passage_lines(passage_id):     # ordered by seq, live only
+            if ln["id"] == line_id:
+                save_row("passage_lines",
+                         {"seq": seq, "english": pieces[0]}, row_id=line_id)
+                result.append(line_id)
+                seq += 1
+                for extra in pieces[1:]:
+                    result.append(save_row("passage_lines", {
+                        "passage_id": passage_id, "seq": seq, "english": extra,
+                    }))
+                    seq += 1
+            else:
+                if ln["seq"] != seq:             # only shifted rows are rewritten
+                    save_row("passage_lines", {"seq": seq}, row_id=ln["id"])
+                seq += 1
+    return result
+
+
 def resplit_passage(passage_id: str, raw_text: str) -> None:
     """Re-split a passage, preserving translations for unchanged sentences.
 

@@ -137,12 +137,14 @@ S: dict[str, tuple[str, str]] = {
     "col_my_translation": ("내 해석", "My translation"),
     "col_feedback": ("피드백 메모", "Feedback note"),
     "reading_hint": ("해석·메모 칸을 더블클릭하면 바로 입력됩니다. 입력한 내용은 자동 저장됩니다. "
-                     "문장을 우클릭하면 합치거나 제거할 수 있습니다.",
+                     "문장을 우클릭하면 합치거나 나누거나 제거할 수 있습니다.",
                      "Double-click a translation or note cell to type. Saved "
-                     "automatically. Right-click a sentence to merge or remove it."),
+                     "automatically. Right-click a sentence to merge, split, or "
+                     "remove it."),
     "merge_sentences": ("문장 합치기", "Merge sentences"),
     "merge_need_adjacent": ("문장 합치기 (인접한 문장만 가능)",
                             "Merge sentences (adjacent only)"),
+    "split_sentence": ("문장 나누기", "Split sentence"),
     "delete_sentence": ("문장 제거", "Remove sentence"),
     "delete_sentence_body": ("이 문장을 지문에서 제거할까요? 해석·메모도 함께 지워집니다.",
                              "Remove this sentence from the passage? Its "
