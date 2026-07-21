@@ -504,13 +504,17 @@ class EntryTab(QWidget):
                                         t("nothing_to_save_body"))
             return
 
+        was_new = self._current_id is None
         self._current_id = repo.save_row(self.table, values, row_id=self._current_id)
         # Remember source and tags so the next new entry starts pre-filled with
         # them. Clearing a field and saving is respected -- it carries the
-        # blank forward, which is how you signal you have moved on.
-        for key in ("source", "tags"):
-            if key in values:
-                db.set_meta(self._carry_key(key), values[key])
+        # blank forward, which is how you signal you have moved on. Only saves
+        # of NEW entries count: fixing a typo in an old row from some other
+        # article must not hijack what the current run of entries is using.
+        if was_new:
+            for key in ("source", "tags"):
+                if key in values:
+                    db.set_meta(self._carry_key(key), values[key])
         self._clear_dirty()
         self.reload()
         self.dataChanged.emit()

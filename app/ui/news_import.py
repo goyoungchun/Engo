@@ -78,9 +78,18 @@ class NewsImportDialog(QDialog):
         self.setWindowTitle(t("fetch_news_title"))
         self.setMinimumWidth(480)
         self._fetching = False
+        self._cancelled = False
         self.created = 0
         self._done.connect(self._on_done)
         self._build()
+
+    def reject(self) -> None:
+        # The cancel button is disabled while fetching, but Esc and the ✕
+        # call reject() regardless. The worker cannot be un-sent, so mark the
+        # run cancelled and let _on_done discard its result -- otherwise
+        # passages appear that the user explicitly walked away from.
+        self._cancelled = True
+        super().reject()
 
     def _build(self) -> None:
         outer = QVBoxLayout(self)
@@ -192,6 +201,8 @@ class NewsImportDialog(QDialog):
 
     def _on_done(self, articles, error: str) -> None:
         self._fetching = False
+        if self._cancelled:
+            return          # closed mid-fetch: nothing may be created
         self.progress.setVisible(False)
         self.fetch_btn.setEnabled(True)
         self.cancel_btn.setEnabled(True)

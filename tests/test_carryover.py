@@ -130,6 +130,18 @@ def main() -> int:
           val(tab, "source") == "BBC 6 Minute English",
           repr(val(tab, "source")))
 
+    print("\n[기존 항목을 고쳐 저장해도 이어받기 값은 안 바뀐다]")
+    # carry is currently "The Economist / 경제" from the last NEW entry.
+    # Fixing a typo in this old BBC row must not hijack that.
+    tab._loading = False
+    set_editor_value(tab._editors["english"], "take off (수정)")
+    tab._mark_dirty()
+    tab.save_current()
+    check("수정 저장 후에도 새 항목 프리필은 최근 새 항목의 출처",
+          val(tab, "source") == "The Economist", repr(val(tab, "source")))
+    check("태그도 최근 새 항목 것", val(tab, "tags") == "경제",
+          repr(val(tab, "tags")))
+
     print()
     if _failures:
         print(f"실패 {len(_failures)}건: {', '.join(_failures)}")

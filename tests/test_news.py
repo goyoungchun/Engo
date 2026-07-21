@@ -157,6 +157,29 @@ def main() -> int:
                                   seen=repo.seen_article_guids())[0]))
     dlg.deleteLater()
 
+    print("\n[가져오는 중에 Esc 로 닫으면 아무것도 만들지 않는다]")
+    before_n = repo.count_rows("passages")
+    dlg2 = NewsImportDialog()
+    dlg2._fetching = True          # a worker is in flight
+    dlg2.reject()                  # what Esc and ✕ call
+    dlg2._on_done(arts3, "")       # the worker finishes afterwards
+    check("취소된 가져오기는 지문을 만들지 않는다",
+          repo.count_rows("passages") == before_n and dlg2.created == 0,
+          f"({before_n} → {repo.count_rows('passages')})")
+    dlg2.deleteLater()
+
+    print("\n[면책 문구가 핵심을 담고 있는지 (정책)]")
+    from app import i18n
+    for lang in ("ko", "en"):
+        i18n.set_language(lang)
+        body = i18n.t("news_disclaimer_body")
+        needed = (["개인", "저작권", "책임", "재배포"] if lang == "ko"
+                  else ["personal", "copyright", "responsib", "redistribute"])
+        check(f"{lang}: 개인학습·저작권·책임·재배포 언급",
+              all(w in body for w in needed),
+              str([w for w in needed if w not in body]))
+    i18n.set_language("ko")
+
     print("\n[실제 피드 한 번 -- 모양 확인]")
     live, err_live = news.fetch(["npr"], ["world"], 3)
     if err_live == "news_offline":
