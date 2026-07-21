@@ -13,7 +13,7 @@ import threading
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QDialog, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
-    QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget,
 )
 
 from .. import db, news, repo
@@ -106,13 +106,13 @@ class NewsImportDialog(QDialog):
         reminder.setWordWrap(True)
         outer.addWidget(reminder)
 
-        # Sources
+        # Sources -- one on by default (the fullest text), the rest a choice.
         src_box = QGroupBox(t("news_sources"))
         src_grid = QGridLayout(src_box)
         self.source_checks: dict[str, QCheckBox] = {}
         for i, source in enumerate(news.SOURCES):
             check = QCheckBox(f"{source.name}  ·  {t(source.licence_key)}")
-            check.setChecked(True)
+            check.setChecked(i == 0)
             check.toggled.connect(self._sync_theme_availability)
             self.source_checks[source.key] = check
             src_grid.addWidget(check, i, 0)
@@ -129,13 +129,26 @@ class NewsImportDialog(QDialog):
             theme_grid.addWidget(check, i // 3, i % 3)
         outer.addWidget(theme_box)
 
-        # Count
+        # Count -- explicit − / + buttons around the number, which reads more
+        # plainly than a spin box's tiny arrows.
         count_row = QHBoxLayout()
         count_row.addWidget(QLabel(t("news_count")))
-        self.count = QSpinBox()
-        self.count.setRange(1, 20)
-        self.count.setValue(5)
-        count_row.addWidget(self.count)
+        self._count_value = 5
+        self.minus_btn = QPushButton("−", self)   # a real minus sign
+        self.minus_btn.setObjectName("stepper")
+        self.minus_btn.setFixedSize(34, 34)
+        self.minus_btn.clicked.connect(lambda: self._step_count(-1))
+        count_row.addWidget(self.minus_btn)
+        self.count_label = QLabel(str(self._count_value))
+        self.count_label.setAlignment(Qt.AlignCenter)
+        self.count_label.setFixedWidth(40)
+        self.count_label.setObjectName("countValue")
+        count_row.addWidget(self.count_label)
+        self.plus_btn = QPushButton("+", self)
+        self.plus_btn.setObjectName("stepper")
+        self.plus_btn.setFixedSize(34, 34)
+        self.plus_btn.clicked.connect(lambda: self._step_count(1))
+        count_row.addWidget(self.plus_btn)
         count_row.addStretch(1)
         outer.addLayout(count_row)
 
@@ -159,6 +172,15 @@ class NewsImportDialog(QDialog):
         outer.addLayout(row)
 
         self._sync_theme_availability()
+
+    _COUNT_MIN, _COUNT_MAX = 1, 20
+
+    def _step_count(self, delta: int) -> None:
+        self._count_value = max(self._COUNT_MIN,
+                                min(self._COUNT_MAX, self._count_value + delta))
+        self.count_label.setText(str(self._count_value))
+        self.minus_btn.setEnabled(self._count_value > self._COUNT_MIN)
+        self.plus_btn.setEnabled(self._count_value < self._COUNT_MAX)
 
     def _sync_theme_availability(self) -> None:
         """Grey out a theme no chosen source carries, so it cannot mislead."""
@@ -188,7 +210,7 @@ class NewsImportDialog(QDialog):
         self.progress.setVisible(True)
         self.status.setText(t("news_fetching"))
 
-        count = self.count.value()
+        count = self._count_value
         seen = repo.seen_article_guids()
 
         def work():

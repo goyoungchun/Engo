@@ -263,7 +263,21 @@ def study_dates(table: str, limit: int = 60) -> list[tuple[str, int]]:
 
 # Titles are always followed by a name, so a period after one is never the end
 # of a sentence.
-_TITLE_ABBREV = ("Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "St.", "Jr.", "Sr.")
+# Titles and name particles that always precede a proper noun, so the period
+# is never a sentence end -- "U.S. Rep. Alexandria Ocasio-Cortez" is one
+# sentence. Kept broad because news writing is full of them.
+_TITLE_ABBREV = (
+    # honorifics
+    "Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "Rev.", "Fr.", "Br.", "Msgr.",
+    "Hon.", "Sir.", "St.",
+    # political / official
+    "Rep.", "Reps.", "Sen.", "Sens.", "Gov.", "Govs.", "Pres.", "Sec.",
+    "Amb.", "Supt.", "Det.", "Ofc.",
+    # military ranks
+    "Gen.", "Lt.", "Col.", "Sgt.", "Capt.", "Maj.", "Adm.", "Cmdr.", "Brig.",
+    "Pvt.", "Cpl.", "Cmdr.",
+    # name suffixes and places
+    "Jr.", "Sr.", "Esq.", "Mt.", "Ft.")
 
 # These can legitimately end a sentence ("...arrived at 9 a.m. He said..."), so
 # they only suppress the split when what follows is not a new sentence -- i.e.

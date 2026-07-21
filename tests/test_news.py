@@ -133,13 +133,15 @@ def main() -> int:
     check("받았지만 새 기사 없으면 news_empty", e_empty == "news_empty", e_empty)
 
     print("\n[테마 가용성]")
-    check("science 는 The Conversation 이 없다",
-          "conversation" not in [s.key for s in news.SOURCES
-                                 if "science" in s.feeds])
-    check("conversation 만 고르면 science 는 빠진다",
-          "science" not in news.available_themes(["conversation"]),
+    check("모든 매체가 5개 테마를 지원한다",
+          all(set(news.available_themes([s.key])) == set(news.THEMES)
+              for s in news.SOURCES),
+          str({s.key: news.available_themes([s.key]) for s in news.SOURCES}))
+    check("The Conversation 단독으로도 science 선택 가능",
+          "science" in news.available_themes(["conversation"]),
           str(news.available_themes(["conversation"])))
-    check("npr 는 5개 테마 모두", set(news.available_themes(["npr"])) == set(news.THEMES))
+    check("The Conversation science 는 environment 피드로 매핑",
+          "environment" in news.SOURCE_BY_KEY["conversation"].feeds["science"])
 
     print("\n[면책 동의 게이트]")
     from app.ui.news_import import NewsDisclaimerDialog, NewsImportDialog
@@ -153,6 +155,26 @@ def main() -> int:
     gate.deleteLater()
 
     print("\n[가져온 기사가 지문·출처로 저장된다]")
+    print("\n[다이얼로그 기본값 · 과학 · 개수 조절]")
+    fresh = NewsImportDialog()
+    default_sources = [k for k, c in fresh.source_checks.items() if c.isChecked()]
+    check("기본 매체는 1개", len(default_sources) == 1, str(default_sources))
+    check("모든 주제가 선택 가능(과학 포함)",
+          all(c.isEnabled() for c in fresh.theme_checks.values()))
+    check("과학이 The Conversation 단독으로도 가능",
+          "science" in news.available_themes(["conversation"]))
+    check("개수 기본 5", fresh._count_value == 5)
+    fresh._step_count(1)
+    check("+ 로 6", fresh._count_value == 6 and fresh.count_label.text() == "6")
+    for _ in range(20):
+        fresh._step_count(-1)
+    check("− 는 최소 1에서 멈춘다", fresh._count_value == 1)
+    check("최소에서 − 버튼 비활성", not fresh.minus_btn.isEnabled())
+    for _ in range(30):
+        fresh._step_count(1)
+    check("+ 는 최대 20에서 멈춘다", fresh._count_value == 20)
+    fresh.deleteLater()
+
     orig = with_feeds({url: RSS})
     dlg = NewsImportDialog()
     for k, c in dlg.source_checks.items():

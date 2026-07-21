@@ -62,6 +62,13 @@ def test_sentence_split() -> None:
     check("U.S. + 대문자 고유명사는 한 문장", len(us), 1)
     uk = repo.split_sentences("The U.N. Security Council met in the U.K. today.")
     check("U.N./U.K. 이니셜리즘 유지", len(uk), 1)
+    # Title abbreviations before a name never break: "U.S. Rep. Alexandria..."
+    rep = repo.split_sentences(
+        "U.S. Rep. Alexandria Ocasio-Cortez of New York has served since 2019.")
+    check("U.S. Rep. + 이름은 한 문장", len(rep), 1)
+    titles = repo.split_sentences(
+        "Sen. Bernie Sanders met Gov. Newsom and Gen. Milley last week.")
+    check("Sen./Gov./Gen. 직함 유지", len(titles), 1)
     # ...but a real sentence break after an initialism still splits.
     two = repo.split_sentences("It happened in the U.S. The economy grew fast.")
     # (acceptable either way for "U.S. The", but "a.m." before a capital must split)

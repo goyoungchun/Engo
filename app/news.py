@@ -73,6 +73,10 @@ SOURCES = (
         "world":      "https://theconversation.com/us/world/articles.atom",
         "business":   "https://theconversation.com/us/business/articles.atom",
         "technology": "https://theconversation.com/us/technology/articles.atom",
+        # The Conversation has no standalone science section; its environment
+        # feed (climate, energy, ecology) is the closest science content and
+        # lets every theme, science included, be picked with this source alone.
+        "science":    "https://theconversation.com/us/environment/articles.atom",
         "health":     "https://theconversation.com/us/health/articles.atom",
     }),
     Source("npr", "NPR", "lic_public", {
