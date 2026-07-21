@@ -200,6 +200,31 @@ def main() -> int:
     check("팟캐스트/인스타 홍보는 제외",
           "Apple Podcasts" not in got and "Instagram" not in got, got[-60:])
 
+    print("\n[뉴스레터 인트로 제외 · 본문 목록 포함]")
+    letter = (
+        '<div id="storytext">'
+        '<p><em>Good morning. You\'re reading the Up First newsletter. '
+        'Subscribe here to get it delivered to your inbox.</em></p>'
+        '<h2 class="edTag">3 things to know before you go</h2>'
+        '<ol class="edTag">'
+        '<li>🎧 British runner Josh Kerr ran a record mile on Saturday.</li>'
+        '<li>Andrew Tate was arrested by the U.S. Marshals in Miami.</li>'
+        '</ol>'
+        '<ul><li><a href="/nav">Some navigation link that is not article</a></li></ul>'
+        '</div>')
+    orig_ff4 = news._fetch_feed
+    news._fetch_feed = lambda u: letter.encode("utf-8")
+    letter_body = news._article_body("https://www.npr.org/z")
+    news._fetch_feed = orig_ff4
+    check("인사말/구독 홍보가 제외된다",
+          "Good morning" not in letter_body
+          and "delivered to your inbox" not in letter_body, letter_body[:40])
+    check("소제목은 유지", "## 3 things to know" in letter_body)
+    check("본문 목록 항목이 포함된다",
+          "Josh Kerr" in letter_body and "Andrew Tate" in letter_body)
+    check("선두 이모지(🎧)는 제거", "🎧" not in letter_body)
+    check("네비게이션 목록은 제외", "navigation link" not in letter_body)
+
     print("\n[지문 길이 분류]")
     check("10문장 이하 short", news.length_category_by_count(6) == "short")
     check("11~25 medium", news.length_category_by_count(18) == "medium")
@@ -278,8 +303,9 @@ def main() -> int:
     check("과학이 The Conversation 단독으로도 가능",
           "science" in news.available_themes(["conversation"]))
     check("길이 선택이 3개(짧음/중간/김)", len(fresh.length_checks) == 3)
-    check("길이 기본은 모두 선택", all(c.isChecked()
-          for c in fresh.length_checks.values()))
+    check("길이 기본은 중간만", fresh.length_checks["medium"].isChecked()
+          and not fresh.length_checks["short"].isChecked()
+          and not fresh.length_checks["long"].isChecked())
     check("개수 기본 1", fresh._count_value == 1)
     check("기본 1이면 − 버튼 비활성", not fresh.minus_btn.isEnabled())
     fresh._step_count(1)

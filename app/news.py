@@ -287,7 +287,7 @@ _BODY_END = ('class="c-mmp', 'class="region', 'class="share',
 # \b after the tag name so "<p" does not also match "<picture" -- which,
 # because the backreference then closes on the caption's </p>, dragged the
 # lead image's caption in as if it were the first paragraph.
-_PARA = re.compile(r"<(p|h[23])\b[^>]*>(.*?)</\1>", re.S | re.I)
+_PARA = re.compile(r"<(p|h[23]|li)\b[^>]*>(.*?)</\1>", re.S | re.I)
 # An image caption/credit block, spotted by its HTML markup -- NPR wraps the
 # caption in class="caption"/class="credit"/class="hide-caption" -- so a body
 # sentence that merely says the word "credit" is not mistaken for one.
@@ -304,6 +304,18 @@ _FOOTER = re.compile(
     r"|\bFollow (?:us|the show) on\b|\bsign up for\b.{0,30}\bnewsletter\b"
     r"|\bLeave us a voicemail\b|\bSubscribe to\b.{0,40}\b(?:podcast|newsletter)\b",
     re.I)
+# A newsletter greeting / subscription pitch at the top of an NPR newsletter
+# edition: "You're reading the Up First newsletter... delivered to your inbox."
+# Skipped, not a stop -- the real edition follows it.
+_PROMO = re.compile(
+    r"You(?:'re| are) reading the\b.{0,50}\bnewsletter\b"
+    r"|\bdelivered to your inbox\b"
+    r"|\bSubscribe\b.{0,30}\bto get it\b", re.I)
+# A non-editorial list (navigation, related links). Body lists are marked
+# edTag; drop the rest before pulling <li> items.
+_NON_EDTAG_LIST = re.compile(r"<(ul|ol)(?![^>]*edTag)[^>]*>.*?</\1>", re.S | re.I)
+# A leading decorative emoji on a list item ("🎧 Jordan, a ...").
+_LEAD_EMOJI = re.compile(r"^[\U0001F000-\U0001FAFF☀-➿️]+\s*")
 
 
 def _article_body(url: str) -> str:
@@ -328,9 +340,12 @@ def _article_body(url: str) -> str:
         cut = region.find(marker, 200)
         if cut > 0:
             region = region[:cut]
-    # Take the paragraphs (and any subheadings) in order. Pulling <p> rather
-    # than cleaning the whole region leaves out image captions and credits,
-    # which sit in their own elements.
+    # Drop navigation/related lists so only editorial (edTag) list items are
+    # left to pull as <li>.
+    region = _NON_EDTAG_LIST.sub(" ", region)
+    # Take the paragraphs, subheadings and list items in order. Pulling by tag
+    # rather than cleaning the whole region leaves out image captions and
+    # credits, which sit in their own elements.
     parts: list[str] = []
     for match in _PARA.finditer(region):
         opening = match.group(0)
@@ -338,8 +353,10 @@ def _article_body(url: str) -> str:
         # and body only.
         if _CAPTION.search(opening) or _RECIRC.search(opening):
             continue
-        text = clean(match.group(2))
+        text = _LEAD_EMOJI.sub("", clean(match.group(2)))
         if not text or _IMGCREDIT.search(text):
+            continue
+        if _PROMO.search(text):               # a newsletter greeting/pitch
             continue
         # The editor-credit / promo footer ends the article; stop here so it
         # and anything after it (share bars, more promos) are left out.

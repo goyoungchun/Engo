@@ -129,13 +129,14 @@ class NewsImportDialog(QDialog):
             theme_grid.addWidget(check, i // 3, i % 3)
         outer.addWidget(theme_box)
 
-        # Length -- short / medium / long, by sentence count. All on means any.
+        # Length -- short / medium / long, by sentence count. Medium by
+        # default: a middling passage is the usual want.
         length_box = QGroupBox(t("news_length"))
         length_grid = QGridLayout(length_box)
         self.length_checks: dict[str, QCheckBox] = {}
         for i, key in enumerate(news.LENGTHS):
             check = QCheckBox(t(f"len_{key}"))
-            check.setChecked(True)
+            check.setChecked(key == "medium")
             self.length_checks[key] = check
             length_grid.addWidget(check, 0, i)
         outer.addWidget(length_box)
