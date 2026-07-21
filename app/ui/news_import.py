@@ -230,8 +230,12 @@ class NewsImportDialog(QDialog):
             lengths = None
 
         def work():
+            # should_stop makes Esc actually stop the network work -- the
+            # cancelled flag already discards the result, but without this the
+            # worker would keep fetching article pages to no purpose.
             articles, error = news.fetch(sources, themes, count, seen=seen,
-                                         lengths=lengths)
+                                         lengths=lengths,
+                                         should_stop=lambda: self._cancelled)
             try:
                 self._done.emit(articles, error)
             except RuntimeError:
@@ -252,10 +256,16 @@ class NewsImportDialog(QDialog):
 
         # Create a passage per article, tagged with source and theme, and
         # remember the guids so the same article is not fetched again.
+        created = 0
         for article in articles:
             tags = f"{article.source_name}, {t('theme_' + article.theme)}"
             repo.create_passage(article.title, article.text, tags=tags,
                                 source_url=article.url)
-        repo.mark_articles_seen([a.guid for a in articles])
-        self.created = len(articles)
+            # Marked per passage, right after it exists. Marking the whole
+            # batch at the end meant a failure partway left passages created
+            # but unmarked -- and the next fetch imported them again as
+            # duplicates.
+            repo.mark_articles_seen([article.guid])
+            created += 1
+        self.created = created
         self.accept()

@@ -259,6 +259,39 @@ def main() -> int:
     check("긴 글만 요청하면 긴 것만", [a.guid for a in long_only] == ["len-l"],
           str([a.guid for a in long_only]))
 
+    print("\n[보안: 스킴 · 엔티티 폭탄 · 크기 상한]")
+    # a feed item whose link is file:// must not carry the link anywhere
+    evil = ('<rss><channel><item><title>Local file trick</title>'
+            '<link>file:///C:/Windows/win.ini</link><guid>evil-1</guid>'
+            '<description>A description long enough to pass the minimum '
+            'length filter easily.</description></item></channel></rss>')
+    orig = with_feeds({url: evil})
+    got_evil, _ = news.fetch(["npr"], ["world"], 5, rng=random.Random(1))
+    news._fetch_feed = orig
+    check("file:// 링크는 버려진다(url 비움)",
+          got_evil and got_evil[0].url == "", str([a.url for a in got_evil]))
+    try:
+        news._fetch_feed("file:///C:/Windows/win.ini")
+        scheme_blocked = False
+    except ValueError:
+        scheme_blocked = True
+    check("file:// 요청 자체가 거부된다", scheme_blocked)
+    check("응답 크기 상한이 있다", news.MAX_FETCH_BYTES <= 16 * 1024 * 1024,
+          str(news.MAX_FETCH_BYTES))
+
+    bomb = ('<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol">]>'
+            '<rss><channel><item><title>&lol;</title><guid>b</guid>'
+            '<description>boom boom boom boom boom boom boom</description>'
+            '</item></channel></rss>')
+    orig = with_feeds({url: bomb})
+    _, e_bomb = news.fetch(["npr"], ["world"], 5)
+    news._fetch_feed = orig
+    check("DTD/ENTITY 피드는 파싱 전에 거부된다", e_bomb == "news_empty", e_bomb)
+
+    check("16진 엔티티가 풀린다",
+          news.clean("It&#x2019;s fine &#x2014; really") == "It’s fine — really",
+          news.clean("It&#x2019;s fine &#x2014; really"))
+
     print("\n[오프라인 · 빈 결과]")
     orig = news._fetch_feed
     news._fetch_feed = lambda u: (_ for _ in ()).throw(OSError("no net"))

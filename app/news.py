@@ -192,6 +192,8 @@ def clean(raw: str) -> str:
     for entity, char in _ENTITY.items():
         text = text.replace(entity, char)
     text = re.sub(r"&#(\d+);", lambda m: chr(int(m.group(1))), text)
+    text = re.sub(r"&#[xX]([0-9a-fA-F]+);",
+                  lambda m: chr(int(m.group(1), 16)), text)
     # Collapse every run of whitespace -- including newlines the source used
     # only to wrap its markup -- to one space, so a dateline like
     # "CAPE CANAVERAL, Florida —" joins the sentence it introduces rather than
@@ -255,6 +257,12 @@ def _link_of(item) -> str:
 
 
 def _parse(raw: bytes, source: Source, theme: str) -> list[Article]:
+    # xml.etree expands internal entities, so a crafted feed with an entity
+    # bomb ("billion laughs") would balloon in memory. No real news feed
+    # carries a DTD at all -- reject any that does before parsing.
+    head = raw[:4096]
+    if b"<!DOCTYPE" in head or b"<!ENTITY" in raw:
+        raise ET.ParseError("DTD not allowed in a feed")
     root = ET.fromstring(raw)
     items = root.findall(".//item") or root.findall(f".//{_ATOM}entry")
     out: list[Article] = []
@@ -262,6 +270,10 @@ def _parse(raw: bytes, source: Source, theme: str) -> list[Article]:
         title = clean(_text_of(item.find("title"))
                       or _text_of(item.find(f"{_ATOM}title")))
         url = _link_of(item)
+        # The link is data from the feed, and it gets fetched and displayed
+        # as a clickable link later. Anything but http(s) is dropped here.
+        if url and not url.lower().startswith(("http://", "https://")):
+            url = ""
         guid = (_text_of(item.find("guid")) or _text_of(item.find(f"{_ATOM}id"))
                 or url).strip()
         body = _best_body(item)
@@ -273,10 +285,26 @@ def _parse(raw: bytes, source: Source, theme: str) -> list[Article]:
     return out
 
 
+# More than any feed or article page has business being. A response past this
+# is either a mistake or an attack; either way it is not read into memory.
+MAX_FETCH_BYTES = 8 * 1024 * 1024
+
+
 def _fetch_feed(url: str) -> bytes:
+    # http(s) only. Item links come from the feed, and urllib would happily
+    # open file:// -- which would read a local file into a "passage".
+    if not url.lower().startswith(("http://", "https://")):
+        raise ValueError(f"unsupported url scheme: {url[:40]!r}")
     request = urllib.request.Request(url, headers={"User-Agent": _UA})
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        return response.read()
+        chunks: list[bytes] = []
+        total = 0
+        while chunk := response.read(1 << 16):
+            total += len(chunk)
+            if total > MAX_FETCH_BYTES:
+                raise ValueError("response too large")
+            chunks.append(chunk)
+        return b"".join(chunks)
 
 
 # Where the article prose lives on a page: VOA uses article-content / wsw,

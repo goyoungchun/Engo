@@ -200,6 +200,31 @@ def run() -> None:
     check("진행 표시가 소제목을 세지 않는다 (4문장)",
           "/ 4" in tab.progress_label.text(), tab.progress_label.text())
 
+    print("\n[출처 링크 무해화 -- 병합으로 들어온 값도 데이터일 뿐]")
+    bad = repo.create_passage("의심 링크", "One sentence here.",
+                              source_url="javascript:alert(1)")
+    tab.reload()
+    _select(tab, bad)
+    pump(200)
+    check("http(s) 아닌 출처 링크는 숨긴다", not tab.source_link.isVisible(),
+          tab.source_link.text())
+    marked = repo.create_passage(
+        "따옴표 링크", "One sentence here.",
+        source_url='https://ex.com/a"><b>x</b>')
+    tab.reload()
+    _select(tab, marked)
+    pump(200)
+    check("URL 이 이스케이프되어 마크업 주입이 안 된다",
+          "<b>x</b>" not in tab.source_link.text()
+          and "&quot;" in tab.source_link.text(),
+          tab.source_link.text()[:70])
+    ok_url = repo.create_passage("정상 링크", "One sentence here.",
+                                 source_url="https://ex.com/ok")
+    tab.reload()
+    _select(tab, ok_url)
+    pump(200)
+    check("정상 http 링크는 그대로 보인다", tab.source_link.isVisible())
+
     print("\n[지문 여러 개 선택 삭제]")
     from PySide6.QtWidgets import QListWidget, QMessageBox
     check("지문 목록이 다중 선택 모드",

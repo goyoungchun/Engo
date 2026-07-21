@@ -6,6 +6,8 @@ translation cell and a self-feedback note cell.
 
 from __future__ import annotations
 
+import html
+
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut, QTextDocument
 from PySide6.QtWidgets import (
@@ -359,10 +361,17 @@ class ReadingTab(QWidget):
         passage = repo.get_row("passages", self._passage_id)
         if passage:
             self.title_label.setText(passage["title"])
+        # The stored URL is data -- it may have arrived through a merge from
+        # another device -- and it goes into rich text that opens external
+        # links. Only http(s) is linkified, and the value is escaped so it
+        # cannot inject markup into the label.
         url = (passage or {}).get("source_url", "")
-        if url:
+        if url and url.lower().startswith(("http://", "https://")):
             self.source_link.setText(
-                f'<a href="{url}">{t("news_open_original")}</a>')
+                f'<a href="{html.escape(url, quote=True)}">'
+                f'{t("news_open_original")}</a>')
+        else:
+            url = ""
         self.source_link.setVisible(bool(url))
         self.head.setVisible(True)
         self._show_lines(repo.passage_lines(self._passage_id))
