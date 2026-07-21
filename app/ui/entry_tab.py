@@ -18,11 +18,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import repo, theme, tts
+from .. import db, repo, theme, tts
 from ..i18n import t
 from .common import (
-    ROW_NUMBER, Card, Column, Field, LazyTableModel, apply_placeholder,
-    editor_value, hint_label, make_editor, scrollable, set_editor_value,
+    ROW_NUMBER, Card, Column, Field, LazyTableModel, TagCompleter,
+    apply_placeholder, editor_value, hint_label, make_editor, scrollable,
+    set_completions, set_editor_value, whole_field_completer,
 )
 
 # 편집기 패널의 왼쪽 여백. 위쪽 툴바의 태그 칸도 같은 값을 써야 줄이 맞는다.
@@ -260,6 +261,19 @@ class EntryTab(QWidget):
             form.addRow(label, widget)
         layout.addLayout(form)
 
+        # Autocomplete the two fields that get retyped the most. Source is one
+        # value, so it completes the whole line; tags are comma-separated, so
+        # the tag completer only finishes the segment after the last comma.
+        # Models are filled in _refresh_tags, which runs on every reload.
+        self._source_completer = None
+        self._tags_completer = None
+        if "source" in self._editors:
+            self._source_completer = whole_field_completer(self)
+            self._editors["source"].setCompleter(self._source_completer)
+        if "tags" in self._editors:
+            self._tags_completer = TagCompleter(self)
+            self._editors["tags"].setCompleter(self._tags_completer)
+
         extra = self.spec.get("extra_check")
         if extra:
             self._check = QCheckBox()
@@ -406,6 +420,12 @@ class EntryTab(QWidget):
             self.tag_filter.setCurrentText(current)
         self.tag_filter.blockSignals(False)
 
+        # Keep the editor autocompletion in step with what has been entered.
+        if self._tags_completer is not None:
+            set_completions(self._tags_completer, tags)
+        if self._source_completer is not None:
+            set_completions(self._source_completer, repo.all_sources(self.table))
+
     def _on_row_changed(self, current, previous) -> None:
         # Also saves when _current_id is None: that is a half-typed new entry,
         # and clicking a row must not throw it away.
@@ -442,12 +462,23 @@ class EntryTab(QWidget):
         self._loading = True
         self._current_id = None
         for field in self.spec["fields"]:
-            set_editor_value(self._editors[field.key],
-                             repo.today() if field.kind == "date" else "")
+            if field.kind == "date":
+                value = repo.today()
+            elif field.key in ("source", "tags"):
+                # Carry the source and tags over from the last save. Entries
+                # tend to come in runs from one article with one set of tags,
+                # so repeating them by hand every time is the tedious part.
+                value = db.get_meta(self._carry_key(field.key), "")
+            else:
+                value = ""
+            set_editor_value(self._editors[field.key], value)
         if self._check:
             self._check.setChecked(False)
         self._loading = False
         self._clear_dirty()
+
+    def _carry_key(self, field_key: str) -> str:
+        return f"carry_{field_key}_{self.table}"
 
     # -- actions ---------------------------------------------------------
     def new_entry(self) -> None:
@@ -474,6 +505,12 @@ class EntryTab(QWidget):
             return
 
         self._current_id = repo.save_row(self.table, values, row_id=self._current_id)
+        # Remember source and tags so the next new entry starts pre-filled with
+        # them. Clearing a field and saving is respected -- it carries the
+        # blank forward, which is how you signal you have moved on.
+        for key in ("source", "tags"):
+            if key in values:
+                db.set_meta(self._carry_key(key), values[key])
         self._clear_dirty()
         self.reload()
         self.dataChanged.emit()

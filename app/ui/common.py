@@ -5,10 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from PySide6.QtCore import (
+    QAbstractTableModel, QModelIndex, QStringListModel, Qt,
+)
 from PySide6.QtGui import QColor, QFont, QTextCursor
 from PySide6.QtWidgets import (
-    QDateEdit, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QCompleter, QDateEdit, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QPlainTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -257,6 +259,55 @@ class ArrowTextEdit(QPlainTextEdit):
                     self._undo_arrow = (self.textCursor().position(), typed)
                     return
         super().keyPressEvent(event)
+
+
+def whole_field_completer(parent=None) -> QCompleter:
+    """Suggests from earlier values, matching anywhere in the string.
+
+    For a field that holds one value -- a source. The model is filled later
+    with set_completions(); it starts empty so it can be attached before the
+    data is loaded.
+    """
+    completer = QCompleter(parent)
+    completer.setModel(QStringListModel(completer))
+    completer.setCaseSensitivity(Qt.CaseInsensitive)
+    completer.setFilterMode(Qt.MatchContains)
+    completer.setCompletionMode(QCompleter.PopupCompletion)
+    return completer
+
+
+class TagCompleter(QCompleter):
+    """Completes the tag being typed after the last comma, not the whole line.
+
+    Tag inputs are comma-separated, so a completer that matches the entire
+    field goes quiet the moment the first tag and a comma are in place. This
+    one looks only at the segment after the last comma and splices the choice
+    back in front of it.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setModel(QStringListModel(self))
+        self.setCaseSensitivity(Qt.CaseInsensitive)
+        self.setFilterMode(Qt.MatchContains)
+        self.setCompletionMode(QCompleter.PopupCompletion)
+
+    def pathFromIndex(self, index) -> str:
+        chosen = super().pathFromIndex(index)
+        text = self.widget().text()
+        cut = text.rfind(",")
+        if cut < 0:
+            return chosen
+        return f"{text[:cut + 1]} {chosen}"
+
+    def splitPath(self, path: str):
+        return [path.split(",")[-1].strip()]
+
+
+def set_completions(completer: QCompleter, values: list[str]) -> None:
+    model = completer.model()
+    if isinstance(model, QStringListModel):
+        model.setStringList(values)
 
 
 def make_editor(field: Field) -> QWidget:

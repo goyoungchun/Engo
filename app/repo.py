@@ -214,6 +214,20 @@ def count_rows(table: str, search: str = "", tag: str = "",
     return db.connect().execute(sql, params).fetchone()["n"]
 
 
+def all_sources(table: str) -> list[str]:
+    """Distinct non-empty sources, for the source-field autocomplete.
+
+    Grammar has no source column, so it simply has nothing to offer here.
+    """
+    if table not in ("expressions", "sentences"):
+        return []
+    rows = db.connect().execute(
+        f"SELECT DISTINCT source FROM {table} "
+        f"WHERE deleted = 0 AND source <> '' ORDER BY source"
+    )
+    return [r["source"] for r in rows]
+
+
 def all_tags(table: str) -> list[str]:
     rows = db.connect().execute(
         f"SELECT DISTINCT tags FROM {table} WHERE deleted = 0 AND tags <> ''"
