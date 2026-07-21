@@ -260,11 +260,17 @@ class ReadingTab(QWidget):
 
         # Row heights are computed from the wrapped text, which depends on the
         # column width -- and stretch columns only get their real width after
-        # the table is laid out. Re-fitting once the columns settle (coalesced
-        # to one pass) is what stops long sentences from clipping.
+        # the table is laid out. Re-fitting once the columns settle stops long
+        # sentences from clipping.
+        #
+        # Debounced, and this matters: resizeRowsToContents lays out every
+        # cell (a QTextDocument each), so running it on every frame of a
+        # splitter drag -- which resizes the stretch columns continuously --
+        # made dragging lag badly. A single-shot timer that each resize
+        # *restarts* runs it once, ~120ms after the drag settles, not during.
         self._refit = QTimer(self)
         self._refit.setSingleShot(True)
-        self._refit.setInterval(0)
+        self._refit.setInterval(120)
         self._refit.timeout.connect(self.table.resizeRowsToContents)
         header.sectionResized.connect(lambda *_: self._refit.start())
 

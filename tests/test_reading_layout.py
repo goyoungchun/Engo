@@ -96,6 +96,27 @@ def run() -> None:
     check("좁은 창에서도 안 겹침", not overlaps(),
           f"(sizes {splitter.sizes()})")
 
+    print("\n[스플리터 드래그가 매 프레임 행 높이를 재계산하지 않는다]")
+    # resizeRowsToContents lays out every cell; running it per frame of a drag
+    # made dragging lag. It must be debounced to one pass after the drag.
+    win.resize(1300, 720)
+    pump(200)
+    calls = {"n": 0}
+    original = tab.table.resizeRowsToContents
+    tab._refit.timeout.disconnect()
+    tab._refit.timeout.connect(lambda: (calls.__setitem__("n", calls["n"] + 1),
+                                        original()))
+    base = splitter.sizes()[0]
+    for i in range(30):
+        splitter.setSizes([base + i * 8, splitter.sizes()[1]])
+        app.processEvents()
+    during = calls["n"]
+    pump(300)                      # let the debounce settle
+    check("드래그 30프레임에 재계산은 몇 번뿐", during <= 3,
+          f"(드래그 중 {during}회)")
+    check("드래그가 멈추면 한 번 재계산된다", calls["n"] > during,
+          f"({calls['n']}회)")
+
     print("\n[기사 본문이 잘리지 않는다]")
     check("본문 상한이 넉넉하다 (>=20000)", news.MAX_BODY >= 20000,
           str(news.MAX_BODY))
