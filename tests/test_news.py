@@ -73,6 +73,17 @@ def main() -> int:
     check("깨진 태그 잔해(NPR '/>)가 제거된다",
           "/>" not in news.clean("emotional support.'/><p>next</p>"),
           news.clean("emotional support.'/><p>next</p>"))
+
+    print("\n[소제목 표시]")
+    heads = [ln for ln in news.clean(
+        "<p>Body one here now.</p><h2>A Section Title</h2>"
+        "<p>Body two here now.</p>").split("\n") if news.is_heading(ln)]
+    check("h2 소제목이 '## ' 줄로 표시된다", heads == ["## A Section Title"], str(heads))
+    check("heading_text 가 '## '를 뗀다", news.heading_text("## Title") == "Title")
+    check("일반 문장은 소제목이 아니다", not news.is_heading("Just a sentence."))
+    split = repo.split_sentences(news.clean(
+        "<p>First. Second.</p><h3>Heading Here</h3><p>Third one.</p>"))
+    check("소제목이 한 줄로 분리된다", "## Heading Here" in split, str(split))
     check("진짜 부등호는 유지된다",
           news.clean("5 > 3 and a < b") == "5 > 3 and a < b")
     # Longer than the sanity ceiling, so the cap actually engages.

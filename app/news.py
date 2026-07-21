@@ -108,8 +108,24 @@ class Article:
 # --------------------------------------------------------------------------
 # text cleaning
 
+# A section heading is marked with a Markdown-style "## " prefix. It is
+# readable if the user ever edits the raw text (they can add or remove one by
+# hand), survives sentence-splitting as its own line, and the reading tab
+# renders any line that starts with it as a heading rather than a sentence.
+HEADING_PREFIX = "## "
+
+
+def is_heading(line: str) -> bool:
+    return line.startswith(HEADING_PREFIX)
+
+
+def heading_text(line: str) -> str:
+    return line[len(HEADING_PREFIX):].strip() if is_heading(line) else line
+
+
 _TAG = re.compile(r"<[^>]+>")
 _SCRIPT = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.S | re.I)
+_HEADING = re.compile(r"<h[1-6][^>]*>(.*?)</h[1-6]>", re.S | re.I)
 # Lead images carry a caption and a photo credit ("... Getty Images") that
 # would otherwise open every passage as a stray fragment before the article
 # itself. Drop the figure wholesale.
@@ -128,6 +144,10 @@ def clean(raw: str) -> str:
         return ""
     text = _SCRIPT.sub(" ", raw)
     text = _FIGURE.sub(" ", text)
+    # Turn headings into their own marked line before the tags are stripped,
+    # so the paragraph structure that tells a heading from body text is not
+    # lost. Inner tags (a linked heading, say) are cleared by _TAG next.
+    text = _HEADING.sub(r"\n\n## \1\n\n", text)
     text = _TAG.sub(" ", text)
     # Feeds carry malformed HTML -- NPR ends an image tag as a bare
     # `...support.'/>`. Once well-formed tags are gone, a tag-close remnant

@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["ENGO_HOME"] = tempfile.mkdtemp(prefix="engo_layout_")
 os.environ.pop("QT_QPA_PLATFORM", None)
 
-from PySide6.QtCore import QElapsedTimer, QPoint, QTimer     # noqa: E402
+from PySide6.QtCore import QElapsedTimer, QPoint, Qt, QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication, QSplitter        # noqa: E402
 
 app = QApplication.instance() or QApplication([])
@@ -107,10 +107,66 @@ def run() -> None:
         check("The Conversation 전체 본문이 온다 (>3000자)", longest > 3000,
               f"({[len(a.text) for a in articles]})")
 
+    print("\n[긴 문장이 셀 안에서 잘리지 않는다]")
+    from PySide6.QtGui import QFontMetrics
+    from app.ui.reading_tab import COL_EN
+    body = ("From tomatoes and berries to lettuce and peppers, shoppers are "
+            "feeling real sticker shock in the produce aisle this year. "
+            "Short. "
+            "Another quite long sentence that has to wrap across several lines "
+            "in the narrow English column and still show its very last word.")
+    pid = repo.create_passage("Clip test", body)
+    win.resize(1000, 700)
+    pump(200)
+    tab.reload()
+    _select(tab, pid)
+    pump(300)
+    clipped = 0
+    for r in range(tab.table.rowCount()):
+        item = tab.table.item(r, COL_EN)
+        fm = QFontMetrics(item.font())
+        need = fm.boundingRect(0, 0, tab.table.columnWidth(COL_EN) - 10, 100000,
+                               Qt.TextWordWrap, item.text()).height()
+        if tab.table.rowHeight(r) < need - 2:
+            clipped += 1
+    check("어떤 행도 잘리지 않는다", clipped == 0, f"({clipped}개 잘림)")
+
+    print("\n[소제목이 문장과 구분된다]")
+    from app import news as _news
+    with_head = ("Intro sentence here now.\n"
+                 "## Section One Title\n"
+                 "Body after the heading here. Second body sentence here now.\n"
+                 "## Section Two Title\n"
+                 "Closing sentence of the passage here.")
+    hid = repo.create_passage("Heading test", with_head)
+    tab.reload()
+    _select(tab, hid)
+    pump(300)
+    tb = tab.table
+    heading_rows = [r for r in range(tb.rowCount())
+                    if tb.columnSpan(r, COL_EN) == 3]
+    check("소제목 행이 2개, 3열 병합", len(heading_rows) == 2, str(heading_rows))
+    for r in heading_rows:
+        check(f"행{r}: 소제목에 '##'가 안 보인다",
+              "##" not in tb.item(r, COL_EN).text(), tb.item(r, COL_EN).text())
+        no_item = tb.item(r, 0)
+        check(f"행{r}: 번호가 없다", no_item is None or no_item.text() == "",
+              repr(no_item.text()) if no_item else "None")
+    # 4 sentences (the middle body line is two), 2 headings excluded.
+    check("진행 표시가 소제목을 세지 않는다 (4문장)",
+          "/ 4" in tab.progress_label.text(), tab.progress_label.text())
+
     win.prepare_quit()
     win.close()
     tts.shutdown()
     app.quit()
+
+
+def _select(tab, passage_id: str) -> None:
+    for i in range(tab.list.count()):
+        if tab.list.item(i).data(Qt.UserRole) == passage_id:
+            tab.list.setCurrentRow(i)
+            return
 
 
 def _shown(label) -> str:

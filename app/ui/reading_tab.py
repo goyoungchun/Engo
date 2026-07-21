@@ -6,8 +6,8 @@ translation cell and a self-feedback note cell.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QTextDocument
 from PySide6.QtWidgets import (
     QAbstractItemView, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import repo, theme, tts
+from .. import news, repo, theme, tts
 from ..i18n import t
 from .common import ArrowTextEdit, Card, ElidingLabel, english_font, hint_label
 from .news_import import NewsDisclaimerDialog, NewsImportDialog
@@ -24,7 +24,26 @@ COL_NO, COL_EN, COL_TRANS, COL_NOTE = range(4)
 
 
 class WrapTextDelegate(QStyledItemDelegate):
-    """Cell editor that accepts newlines -- a translation often needs them."""
+    """Wraps long cell text and, crucially, reports the height it truly needs.
+
+    resizeRowsToContents relies on the delegate's sizeHint. The default one --
+    and a plain QFontMetrics.boundingRect -- under-measure wrapped text by
+    close to a line, so the last line was cut and shown as "…". QTextDocument
+    lays the text out exactly as it is painted, so the height is right and the
+    sentence is shown whole. Used for every text column, editable or not; the
+    editor half only matters where the user types.
+    """
+
+    def sizeHint(self, option, index):
+        text = str(index.data(Qt.DisplayRole) or "")
+        width = option.rect.width()
+        if width <= 0:                       # columns not laid out yet
+            width = 160
+        document = QTextDocument()
+        document.setDefaultFont(option.font)
+        document.setTextWidth(max(40, width - 12))
+        document.setPlainText(text)
+        return QSize(width, int(document.size().height()) + 12)
 
     def createEditor(self, parent, option, index):
         # ArrowTextEdit so "->" becomes "→" here too -- this is where the user
@@ -214,9 +233,18 @@ class ReadingTab(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setWordWrap(True)
+        # Never elide: a sentence must be shown in full. With eliding on, a
+        # long sentence in the stretch English column was cut to "...the two
+        # powerful earthquakes that shook Venezuela o…" whenever the row was
+        # not tall enough. Off, it wraps; the row height is what has to keep
+        # up, which _refit_rows below ensures.
+        self.table.setTextElideMode(Qt.ElideNone)
         self.table.setShowGrid(True)
         self.table.setGridStyle(Qt.SolidLine)
         self.table.setFrameShape(QTableWidget.NoFrame)
+        # Every text column gets the wrapping delegate, the English one too --
+        # it holds the longest text and was the one being cut.
+        self.table.setItemDelegateForColumn(COL_EN, WrapTextDelegate(self))
         self.table.setItemDelegateForColumn(COL_TRANS, WrapTextDelegate(self))
         self.table.setItemDelegateForColumn(COL_NOTE, WrapTextDelegate(self))
         self.table.itemChanged.connect(self._on_cell_changed)
@@ -229,6 +257,17 @@ class ReadingTab(QWidget):
         header.setSectionResizeMode(COL_NOTE, QHeaderView.Interactive)
         self.table.setColumnWidth(COL_NO, 40)
         self.table.setColumnWidth(COL_NOTE, 210)
+
+        # Row heights are computed from the wrapped text, which depends on the
+        # column width -- and stretch columns only get their real width after
+        # the table is laid out. Re-fitting once the columns settle (coalesced
+        # to one pass) is what stops long sentences from clipping.
+        self._refit = QTimer(self)
+        self._refit.setSingleShot(True)
+        self._refit.setInterval(0)
+        self._refit.timeout.connect(self.table.resizeRowsToContents)
+        header.sectionResized.connect(lambda *_: self._refit.start())
+
         layout.addWidget(self.table, 1)
 
         self.hint = hint_label()
@@ -314,6 +353,7 @@ class ReadingTab(QWidget):
 
     def _show_lines(self, lines: list[dict]) -> None:
         self._loading = True
+        self.table.clearSpans()          # headings from a previous passage
         self.table.setRowCount(0)
         self._line_ids = []
 
@@ -323,10 +363,32 @@ class ReadingTab(QWidget):
 
         self.table.setRowCount(len(lines))
         done = 0
+        total = 0            # sentences only; a heading is not one to translate
         for row, line in enumerate(lines):
             self._line_ids.append(line["id"])
 
-            no_item = QTableWidgetItem(str(row + 1))
+            if news.is_heading(line["english"]):
+                # A section heading: bold, spanning the sentence columns, with
+                # no number and no translation cell -- it is a signpost, not a
+                # row to work on.
+                self.table.setSpan(row, COL_EN, 1, 3)
+                head_item = QTableWidgetItem(news.heading_text(line["english"]))
+                head_item.setFlags(Qt.ItemIsEnabled)
+                heading_font = QFont(font)
+                heading_font.setBold(True)
+                heading_font.setPointSize(font.pointSize() + 1)
+                head_item.setFont(heading_font)
+                head_item.setForeground(QColor(p.primary))
+                head_item.setBackground(QColor(p.surface_alt))
+                self.table.setItem(row, COL_EN, head_item)
+                blank = QTableWidgetItem("")
+                blank.setFlags(Qt.ItemIsEnabled)
+                blank.setBackground(QColor(p.surface_alt))
+                self.table.setItem(row, COL_NO, blank)
+                continue
+
+            total += 1
+            no_item = QTableWidgetItem(str(total))
             no_item.setFlags(Qt.ItemIsEnabled)
             no_item.setTextAlignment(Qt.AlignCenter)
             no_item.setForeground(QColor(p.text_faint))
@@ -349,8 +411,11 @@ class ReadingTab(QWidget):
             self.table.setItem(row, COL_NOTE, note_item)
 
         self.table.resizeRowsToContents()
+        # ...and again once the stretch columns have their real width, or the
+        # first pass (computed at a stale width) leaves long sentences clipped.
+        self._refit.start()
         self._loading = False
-        total = len(lines)
+        # `total` counted sentences only, so headings do not inflate progress.
         self.progress_label.setText(
             t("progress_done", done=done, total=total) if total else "")
 
@@ -466,6 +531,7 @@ class ReadingTab(QWidget):
         for row in rows:
             english = (self.table.item(row, COL_EN) or QTableWidgetItem()).text()
             korean = (self.table.item(row, COL_TRANS) or QTableWidgetItem()).text()
+            english = news.heading_text(english)   # drop any "## " from a heading
             if english.strip():
                 self.sendToSentences.emit(english, korean)
                 sent += 1

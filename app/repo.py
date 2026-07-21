@@ -147,11 +147,15 @@ LIST_COLUMNS = {
     "expressions": "id, english, korean, substr(note, 1, 120) AS note, tags, studied_on, box",
     "sentences": "id, english, korean, substr(note, 1, 120) AS note, tags, studied_on, starred, box",
     "grammar": "id, title, substr(body, 1, 160) AS body, tags, studied_on",
+    # line_count excludes section headings (english starting with "## "), so
+    # the list's "N sentences" matches the numbered rows the passage shows.
     "passages": ("id, title, tags, studied_on, updated_at, "
                  "(SELECT COUNT(*) FROM passage_lines l "
-                 " WHERE l.passage_id = passages.id AND l.deleted = 0) AS line_count, "
+                 " WHERE l.passage_id = passages.id AND l.deleted = 0 "
+                 "   AND l.english NOT LIKE '## %') AS line_count, "
                  "(SELECT COUNT(*) FROM passage_lines l "
                  " WHERE l.passage_id = passages.id AND l.deleted = 0 "
+                 "   AND l.english NOT LIKE '## %' "
                  "   AND TRIM(l.translation) <> '') AS done_count"),
 }
 
