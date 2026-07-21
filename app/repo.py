@@ -370,6 +370,60 @@ def split_sentences(text: str) -> list[str]:
             i += 1
         if buf.strip():
             out.append(buf.strip())
+    return _merge_short(_group_speaker_turns(out))
+
+
+# A speaker label in an interview transcript: an all-caps name, an optional
+# role after a comma, then a colon -- "AYESHA RASCOE, HOST:", "RASCOE:".
+_SPEAKER = re.compile(
+    r"^[A-Z][A-Z'’.\-]+(?: [A-Z][A-Z'’.\-]+)*(?:, [A-Z][A-Za-z ]+)?:\s")
+
+
+def _is_heading(sentence: str) -> bool:
+    return sentence.startswith("## ")
+
+
+def _group_speaker_turns(sentences: list[str]) -> list[str]:
+    """In a transcript, keep each person's turn as one row.
+
+    The period-heavy back-and-forth of an interview ("RASCOE: All right. Tell
+    us more.") otherwise splits into a sentence per clause. When several
+    speaker labels are present the text is treated as a transcript: everything
+    from one label up to the next becomes a single row. Headings stay on their
+    own. Non-transcript prose has no labels and is left untouched.
+    """
+    if sum(1 for s in sentences if _SPEAKER.match(s)) < 3:
+        return sentences
+    grouped: list[str] = []
+    in_turn = False
+    for sentence in sentences:
+        if _is_heading(sentence):
+            grouped.append(sentence)
+            in_turn = False
+        elif _SPEAKER.match(sentence):
+            grouped.append(sentence)
+            in_turn = True
+        elif in_turn:
+            grouped[-1] = f"{grouped[-1]} {sentence}"
+        else:
+            grouped.append(sentence)
+    return grouped
+
+
+def _merge_short(sentences: list[str]) -> list[str]:
+    """Fold a stray one-word sentence ("Welcome.", "Yes.") into the one before.
+
+    A single word marooned as its own row reads as a mistake. Headings and the
+    first row are left alone; everything else joins the previous row.
+    """
+    out: list[str] = []
+    for sentence in sentences:
+        word = sentence.rstrip(".!?\"')]}»”’").strip()
+        if out and not _is_heading(sentence) and not _is_heading(out[-1]) \
+                and word and " " not in word:
+            out[-1] = f"{out[-1]} {sentence}"
+        else:
+            out.append(sentence)
     return out
 
 

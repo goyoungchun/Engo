@@ -85,6 +85,27 @@ def test_sentence_split() -> None:
     trailing = repo.split_sentences('The report said “prices rose.” Markets fell.')
     check("인용 종료 후 대문자 문장 분리", len(trailing), 2)
 
+    # A transcript: each speaker's turn is one row, however many sentences it
+    # holds, and a stray one-word line joins the turn.
+    transcript = repo.split_sentences(
+        "AYESHA RASCOE, HOST: A rescue mission is underway. Nate Rott joins "
+        "us now. Welcome.\n"
+        "NATE ROTT, BYLINE: Thank you.\n"
+        "RASCOE: This sounds like a thriller. Tell us more.\n"
+        "ROTT: Yeah, right? It would have Matt Damon in it.\n"
+        "RASCOE: Yes. Yes.")
+    check("대담: 화자 수만큼 5행", len(transcript), 5)
+    check("대담: 'Welcome.'이 앞 발언에 붙음",
+          any("joins us now. Welcome." in s for s in transcript), True)
+    check("대담: 'Tell us more.'가 RASCOE 발언에 붙음",
+          any("thriller. Tell us more." in s for s in transcript), True)
+    # a one-word sentence in ordinary prose folds into the sentence before it
+    folded = repo.split_sentences("The rocket launched. Yes. It reached orbit safely.")
+    check("한 단어 문장은 앞 문장에 붙는다", len(folded), 2)
+    # ...but ordinary prose without labels is never regrouped
+    plain = repo.split_sentences("One here. Two here. Three here. Four here.")
+    check("라벨 없는 산문은 그대로 분리", len(plain), 4)
+
 
 def test_crud_and_tombstone() -> None:
     print("\n[기본 저장 · 삭제]")
