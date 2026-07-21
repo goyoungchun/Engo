@@ -22,6 +22,19 @@ from .news_import import NewsDisclaimerDialog, NewsImportDialog
 
 COL_NO, COL_EN, COL_TRANS, COL_NOTE = range(4)
 
+# Passage length by sentence count, so a reader can pick a quick one or settle
+# into a long one. A VOA brief is a handful of sentences; a full Conversation
+# feature runs past thirty.
+_LEN_MEDIUM_MIN, _LEN_LONG_MIN = 11, 26
+
+
+def _length_label(sentences: int) -> str:
+    if sentences < _LEN_MEDIUM_MIN:
+        return t("len_short")
+    if sentences < _LEN_LONG_MIN:
+        return t("len_medium")
+    return t("len_long")
+
 
 class WrapTextDelegate(QStyledItemDelegate):
     """Wraps long cell text and, crucially, reports the height it truly needs.
@@ -320,7 +333,8 @@ class ReadingTab(QWidget):
         for row in repo.list_rows("passages", search=self.search.text(), limit=500):
             done, total = row.get("done_count", 0), row.get("line_count", 0)
             item = QListWidgetItem(
-                f"{row['title']}\n{t('progress_short', done=done, total=total)}")
+                f"{row['title']}\n{_length_label(total)} · "
+                f"{t('progress_short', done=done, total=total)}")
             item.setData(Qt.UserRole, row["id"])
             if total and done >= total:
                 item.setForeground(QColor(self.palette.success))
@@ -421,8 +435,13 @@ class ReadingTab(QWidget):
         self._refit.start()
         self._loading = False
         # `total` counted sentences only, so headings do not inflate progress.
-        self.progress_label.setText(
-            t("progress_done", done=done, total=total) if total else "")
+        # The length badge sits before it: e.g. "김 · 52문장  0 / 52 문장 해석함".
+        if total:
+            self.progress_label.setText(
+                f"{_length_label(total)}  ·  "
+                f"{t('progress_done', done=done, total=total)}")
+        else:
+            self.progress_label.setText("")
 
     # -- editing ---------------------------------------------------------
     def _on_cell_changed(self, item: QTableWidgetItem) -> None:

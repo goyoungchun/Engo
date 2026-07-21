@@ -64,6 +64,10 @@ class Source:
     name: str
     licence_key: str          # i18n key describing why reuse is allowed
     feeds: dict               # theme -> feed url
+    # True when the feed carries only a summary and the full text has to be
+    # read from the article page. Done only for public-domain sources (VOA),
+    # where fetching the page is unquestionably fine.
+    fetch_page: bool = False
 
 
 _VOA = "https://www.voanews.com/api/"
@@ -92,7 +96,7 @@ SOURCES = (
         "technology": _VOA + "zyritl-vomx-tpettmq",     # Technology
         "science":    _VOA + "ztbopl-vomx-tpekvmm",     # Science & Health
         "health":     _VOA + "ztbopl-vomx-tpekvmm",     # (VOA folds the two)
-    }),
+    }, fetch_page=True),
 )
 
 SOURCE_BY_KEY = {s.key: s for s in SOURCES}
@@ -250,6 +254,40 @@ def _fetch_feed(url: str) -> bytes:
         return response.read()
 
 
+# VOA's article body sits in this container; everything after it is share
+# widgets and related-story links.
+_BODY_MARKERS = ('id="article-content"', 'class="wsw"')
+_BODY_END = ('class="c-mmp', 'class="region', 'class="share',
+             'id="comments', 'class="related', 'class="c-article-links')
+
+
+def _article_body(url: str) -> str:
+    """The full article text from its page, for feeds that carry only a
+    summary. Used for VOA (public domain). Returns '' on any failure, so the
+    caller keeps the summary rather than losing the article.
+    """
+    try:
+        raw = _fetch_feed(url).decode("utf-8", "replace")
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return ""
+    start = -1
+    for marker in _BODY_MARKERS:
+        start = raw.find(marker)
+        if start >= 0:
+            break
+    if start < 0:
+        return ""
+    start = raw.find(">", start) + 1          # skip past the container's tag
+    if start <= 0:
+        return ""
+    region = raw[start:start + 30000]
+    for marker in _BODY_END:                  # stop before the trailing widgets
+        cut = region.find(marker, 200)
+        if cut > 0:
+            region = region[:cut]
+    return _cap(clean(region))
+
+
 def available_themes(source_keys) -> list[str]:
     """Themes that at least one of the chosen sources actually carries."""
     keys = set(source_keys)
@@ -303,4 +341,17 @@ def fetch(source_keys, theme_keys, count, seen=None, should_stop=None,
     if not pool:
         return [], "news_empty"
     rng.shuffle(pool)
-    return pool[:count], ""
+    chosen = pool[:count]
+
+    # Only now, for the handful actually chosen, read the full body from the
+    # page where the feed gave only a summary (VOA). Doing it here rather than
+    # per feed item avoids fetching pages for articles that get dropped.
+    for article in chosen:
+        source = SOURCE_BY_KEY.get(article.source_key)
+        if source and source.fetch_page and article.url:
+            if should_stop and should_stop():
+                break
+            full = _article_body(article.url)
+            if len(full) > len(article.text):
+                article.text = full
+    return chosen, ""

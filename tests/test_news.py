@@ -112,6 +112,27 @@ def main() -> int:
           any("real body starts" in a.text and "Getty" not in a.text for a in arts))
     check("링크가 채워진다", all(a.url.startswith("http") for a in arts))
 
+    print("\n[VOA: 요약 대신 기사 페이지 본문]")
+    check("VOA 소스는 페이지 본문을 가져오도록 표시됨",
+          news.SOURCE_BY_KEY["voa"].fetch_page is True)
+    page = ('<html><body><div class="body-container">'
+            '<div id="article-content" class="wsw fb-quotable">'
+            '<p>PARIS &mdash; A rocket roared skyward on Thursday morning.</p>'
+            '<p>It took off smoothly and disappeared into the clouds above.</p>'
+            '<p>The mission was to deliver a satellite into a high orbit.</p>'
+            '</div></div>'
+            '<div class="c-mmp">related junk that must not be scraped</div>'
+            '</body></html>')
+    orig_ff = news._fetch_feed
+    news._fetch_feed = lambda u: page.encode("utf-8")
+    body = news._article_body("https://www.voanews.com/a/x/1.html")
+    news._fetch_feed = orig_ff
+    check("본문 문단들이 추출된다", "roared skyward" in body and "high orbit" in body,
+          body[:60])
+    check("관련기사 위젯은 제외된다", "related junk" not in body)
+    check("태그 속성 잔재가 없다", "wsw" not in body and 'class=' not in body)
+    check("엔티티가 풀린다", "—" in body)
+
     print("\n[중복 방지]")
     orig = with_feeds({url: RSS})
     seen = {"g-a"}

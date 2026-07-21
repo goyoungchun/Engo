@@ -140,6 +140,11 @@ S: dict[str, tuple[str, str]] = {
                      "Double-click a translation or note cell to type. Saved automatically."),
     "progress_done": ("{done} / {total} 문장 해석함", "{done} / {total} sentences done"),
     "progress_short": ("{done}/{total} 문장 해석함", "{done}/{total} done"),
+    # passage length, by sentence count -- shown so the reader can pick a
+    # short one for a quick session or a long one to dig in.
+    "len_short": ("짧음", "Short"),
+    "len_medium": ("중간", "Medium"),
+    "len_long": ("김", "Long"),
     "f_title": ("제목", "Title"),
     "ph_passage_title": ("예: BBC 기사 - Climate report 2026",
                          "e.g. BBC article - Climate report 2026"),

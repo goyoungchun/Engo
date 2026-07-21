@@ -152,6 +152,29 @@ def run() -> None:
             clipped += 1
     check("어떤 행도 잘리지 않는다", clipped == 0, f"({clipped}개 잘림)")
 
+    print("\n[지문 길이 배지: 짧음 / 중간 / 김]")
+    from app.ui.reading_tab import _length_label
+    from app import i18n as _i18n
+    _i18n.set_language("ko")
+    check("6문장은 짧음", _length_label(6) == "짧음", _length_label(6))
+    check("18문장은 중간", _length_label(18) == "중간", _length_label(18))
+    check("40문장은 김", _length_label(40) == "김", _length_label(40))
+    check("경계 10/11: 10은 짧음, 11은 중간",
+          _length_label(10) == "짧음" and _length_label(11) == "중간")
+    check("경계 25/26: 25는 중간, 26은 김",
+          _length_label(25) == "중간" and _length_label(26) == "김")
+    # the badge actually reaches the list and header
+    long_body = " ".join(f"Sentence number {i} here now." for i in range(40))
+    lpid = repo.create_passage("Long one", long_body)
+    tab.reload()
+    _select(tab, lpid)
+    pump(200)
+    listed = next(tab.list.item(i).text() for i in range(tab.list.count())
+                  if tab.list.item(i).data(Qt.UserRole) == lpid)
+    check("목록에 '김' 배지가 보인다", "김" in listed, repr(listed))
+    check("헤더에도 '김' 배지가 보인다", "김" in tab.progress_label.text(),
+          tab.progress_label.text())
+
     print("\n[소제목이 문장과 구분된다]")
     from app import news as _news
     with_head = ("Intro sentence here now.\n"
