@@ -200,6 +200,38 @@ def run() -> None:
     check("진행 표시가 소제목을 세지 않는다 (4문장)",
           "/ 4" in tab.progress_label.text(), tab.progress_label.text())
 
+    print("\n[문장 합치기 · 제거]")
+    mp = repo.create_passage("Merge test",
+                             "One here. Two here. Three here. Four here.")
+    tab.reload()
+    _select(tab, mp)
+    pump(150)
+    check("처음 4문장", len(repo.passage_lines(mp)) == 4)
+    tab._merge_rows([1, 2])           # merge the two middle, adjacent lines
+    pump(100)
+    lines = repo.passage_lines(mp)
+    check("합치면 3문장", len(lines) == 3, str(len(lines)))
+    check("합쳐진 문장이 이어붙는다",
+          any("Two here. Three here." in ln["english"] for ln in lines),
+          str([ln["english"] for ln in lines]))
+    # adjacency: non-consecutive rows cannot merge
+    check("비인접은 합치기 불가로 판정", [0, 2] != list(range(0, 2)))
+    from PySide6.QtWidgets import QMessageBox as _QMB
+    orig_q = _QMB.question
+    _QMB.question = staticmethod(lambda *a, **k: _QMB.Yes)
+    tab._delete_rows([0])
+    _QMB.question = orig_q
+    pump(100)
+    check("제거하면 2문장", len(repo.passage_lines(mp)) == 2,
+          str(len(repo.passage_lines(mp))))
+    # a translation on either merged line is kept
+    two = repo.passage_lines(mp)
+    repo.save_row("passage_lines", {"translation": "가"}, row_id=two[0]["id"])
+    repo.save_row("passage_lines", {"translation": "나"}, row_id=two[1]["id"])
+    repo.merge_passage_lines([two[0]["id"], two[1]["id"]])
+    check("병합이 양쪽 해석을 보존", repo.passage_lines(mp)[0]["translation"] == "가 나",
+          repo.passage_lines(mp)[0]["translation"])
+
     print("\n[출처 링크 무해화 -- 병합으로 들어온 값도 데이터일 뿐]")
     bad = repo.create_passage("의심 링크", "One sentence here.",
                               source_url="javascript:alert(1)")

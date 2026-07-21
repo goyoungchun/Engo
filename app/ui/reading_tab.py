@@ -12,9 +12,9 @@ from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut, QTextDocument
 from PySide6.QtWidgets import (
     QAbstractItemView, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
-    QSplitter, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QVBoxLayout,
-    QWidget,
+    QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
+    QPushButton, QSplitter, QStyledItemDelegate, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
 from .. import news, repo, theme, tts
@@ -259,6 +259,10 @@ class ReadingTab(QWidget):
         self.table.setItemDelegateForColumn(COL_TRANS, WrapTextDelegate(self))
         self.table.setItemDelegateForColumn(COL_NOTE, WrapTextDelegate(self))
         self.table.itemChanged.connect(self._on_cell_changed)
+        # Right-click a row (or a run of adjacent rows) to merge or delete
+        # sentences the splitter got wrong.
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._row_menu)
 
         header = self.table.horizontalHeader()
         header.setHighlightSections(False)
@@ -448,6 +452,71 @@ class ReadingTab(QWidget):
                 f"{t('progress_done', done=done, total=total)}")
         else:
             self.progress_label.setText("")
+
+    # -- merge / delete sentences ----------------------------------------
+    def _selected_line_rows(self) -> list[int]:
+        return sorted({i.row() for i in self.table.selectionModel().selectedRows()}
+                      or {i.row() for i in self.table.selectedIndexes()})
+
+    def _row_menu(self, pos) -> None:
+        if not self._passage_id:
+            return
+        rows = self._selected_line_rows()
+        clicked = self.table.rowAt(pos.y())
+        if clicked >= 0 and clicked not in rows:
+            rows = [clicked]
+            self.table.selectRow(clicked)
+        if not rows:
+            return
+
+        menu = QMenu(self)
+        # Merge: two or more rows that are adjacent (no gap). Non-adjacent
+        # selections cannot merge -- the joined text would jump the passage.
+        adjacent = len(rows) >= 2 and rows == list(range(rows[0], rows[0] + len(rows)))
+        merge = menu.addAction(t("merge_sentences"))
+        merge.setEnabled(adjacent)
+        if len(rows) >= 2 and not adjacent:
+            merge.setText(t("merge_need_adjacent"))
+        delete = menu.addAction(t("delete_sentence"))
+        chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+
+        if chosen is merge and adjacent:
+            self._merge_rows(rows)
+        elif chosen is delete:
+            self._delete_rows(rows)
+
+    def _merge_rows(self, rows: list[int]) -> None:
+        ids = [self._line_ids[r] for r in rows if r < len(self._line_ids)]
+        if len(ids) < 2:
+            return
+        survivor = repo.merge_passage_lines(ids)
+        self._reload_lines()
+        if survivor:                    # keep the merged row selected
+            for i, lid in enumerate(self._line_ids):
+                if lid == survivor:
+                    self.table.selectRow(i)
+                    break
+        self.dataChanged.emit()
+
+    def _delete_rows(self, rows: list[int]) -> None:
+        ids = [self._line_ids[r] for r in rows if r < len(self._line_ids)]
+        if not ids:
+            return
+        if len(ids) == 1:
+            body = t("delete_sentence_body")
+        else:
+            body = t("delete_sentences_n_body", n=len(ids))
+        if QMessageBox.question(self, t("delete_sentence"), body,
+                                QMessageBox.Yes | QMessageBox.No,
+                                QMessageBox.No) != QMessageBox.Yes:
+            return
+        repo.delete_passage_lines(ids)
+        self._reload_lines()
+        self.dataChanged.emit()
+
+    def _reload_lines(self) -> None:
+        if self._passage_id:
+            self._show_lines(repo.passage_lines(self._passage_id))
 
     # -- editing ---------------------------------------------------------
     def _on_cell_changed(self, item: QTableWidgetItem) -> None:

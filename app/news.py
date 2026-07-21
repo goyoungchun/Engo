@@ -308,10 +308,16 @@ def _fetch_feed(url: str) -> bytes:
 
 
 # Where the article prose lives on a page: VOA uses article-content / wsw,
-# NPR uses storytext. Everything after the body is share widgets and links.
+# NPR uses storytext.
 _BODY_MARKERS = ('id="article-content"', 'class="wsw"', 'id="storytext"')
-_BODY_END = ('class="c-mmp', 'class="region', 'class="share',
-             'id="comments', 'class="related', 'class="c-article-links')
+# Widget <div> blocks to remove wholesale before pulling paragraphs. These sit
+# *inside* the article body -- a VOA video player runs to thousands of lines
+# in the middle of the text -- so cutting the region at the first one lost
+# everything after it. Removing the balanced block instead keeps the prose on
+# both sides.
+_WIDGET_CLASSES = ("c-mmp", "share", "related", "recirculation",
+                   "c-article-links", "bucketwrap", "ad-", "enlarge")
+_DIV_TAG = re.compile(r"<(/?)div\b[^>]*>", re.I)
 # \b after the tag name so "<p" does not also match "<picture" -- which,
 # because the backreference then closes on the caption's </p>, dragged the
 # lead image's caption in as if it were the first paragraph.
@@ -330,8 +336,15 @@ _FOOTER = re.compile(
     r"\bwas edited by\b|\bedited this (?:story|piece)\b"
     r"|\bListen to\b.{0,60}\b(?:Apple Podcasts|Spotify|NPR One)\b"
     r"|\bFollow (?:us|the show) on\b|\bsign up for\b.{0,30}\bnewsletter\b"
-    r"|\bLeave us a voicemail\b|\bSubscribe to\b.{0,40}\b(?:podcast|newsletter)\b",
+    r"|\bLeave us a voicemail\b|\bSubscribe to\b.{0,40}\b(?:podcast|newsletter)\b"
+    r"|\bMore From VOA\b|\bAbout this site\b",
     re.I)
+# A trailing navigation heading -- VOA ends the article with a "Related" block
+# of site links. Matched exactly so a real "Related research" subheading is
+# left alone.
+_NAV_HEADING = re.compile(
+    r"^(?:Related|More From VOA|Recommended|More stories|Trending(?: Now)?"
+    r"|See also)$", re.I)
 # A newsletter greeting / subscription pitch at the top of an NPR newsletter
 # edition: "You're reading the Up First newsletter... delivered to your inbox."
 # Skipped, not a stop -- the real edition follows it.
@@ -344,6 +357,36 @@ _PROMO = re.compile(
 _NON_EDTAG_LIST = re.compile(r"<(ul|ol)(?![^>]*edTag)[^>]*>.*?</\1>", re.S | re.I)
 # A leading decorative emoji on a list item ("🎧 Jordan, a ...").
 _LEAD_EMOJI = re.compile(r"^[\U0001F000-\U0001FAFF☀-➿️]+\s*")
+
+
+def _strip_widget_divs(html: str) -> str:
+    """Remove <div class="...widget...">…</div> blocks, nesting and all.
+
+    A plain non-greedy regex cannot match a block that contains its own nested
+    <div>s -- and a video player is full of them -- so this counts div opens
+    and closes to find the true end of each block and drops it whole.
+    """
+    for cls in _WIDGET_CLASSES:
+        opener = re.compile(
+            r'<div\b[^>]*class="[^"]*' + re.escape(cls) + r'[^"]*"[^>]*>', re.I)
+        out: list[str] = []
+        pos = 0
+        while True:
+            match = opener.search(html, pos)
+            if not match:
+                out.append(html[pos:])
+                break
+            out.append(html[pos:match.start()])
+            depth = 1
+            end = len(html)
+            for tag in _DIV_TAG.finditer(html, match.end()):
+                depth += -1 if tag.group(1) else 1
+                if depth == 0:
+                    end = tag.end()
+                    break
+            pos = end
+        html = "".join(out)
+    return html
 
 
 def _article_body(url: str) -> str:
@@ -363,11 +406,10 @@ def _article_body(url: str) -> str:
             break
     if start < 0:
         return ""
-    region = raw[start:start + 40000]
-    for marker in _BODY_END:                  # stop before the trailing widgets
-        cut = region.find(marker, 200)
-        if cut > 0:
-            region = region[:cut]
+    region = raw[start:start + 60000]
+    # Remove widget blocks (video player, share bar, related insets) wherever
+    # they sit, so the body on both sides of an in-article video survives.
+    region = _strip_widget_divs(region)
     # Drop navigation/related lists so only editorial (edTag) list items are
     # left to pull as <li>.
     region = _NON_EDTAG_LIST.sub(" ", region)
@@ -391,6 +433,8 @@ def _article_body(url: str) -> str:
         if _FOOTER.search(text):
             break
         if match.group(1).lower().startswith("h"):
+            if _NAV_HEADING.match(text):       # a trailing "Related" nav block
+                break
             text = "## " + text
         parts.append(text)
     return _cap("\n".join(parts))

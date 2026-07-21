@@ -477,6 +477,39 @@ def passage_lines(passage_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def merge_passage_lines(line_ids: Sequence[str]) -> str | None:
+    """Merge several lines into the first (by seq), joining their text.
+
+    The caller guarantees the lines are adjacent. English, translation and
+    note are each space-joined from the non-empty parts, so a translation the
+    user already wrote on either line is kept. The extra lines are tombstoned.
+    Returns the surviving line's id, or None if there was nothing to merge.
+    """
+    rows = [get_row("passage_lines", lid) for lid in line_ids]
+    rows = [r for r in rows if r]
+    if len(rows) < 2:
+        return None
+    rows.sort(key=lambda r: r["seq"])
+
+    def joined(field: str) -> str:
+        return " ".join(r[field].strip() for r in rows if r[field].strip())
+
+    survivor = rows[0]["id"]
+    with db.transaction():
+        save_row("passage_lines", {
+            "english": joined("english"),
+            "translation": joined("translation"),
+            "note": joined("note"),
+        }, row_id=survivor)
+        soft_delete("passage_lines", [r["id"] for r in rows[1:]])
+    return survivor
+
+
+def delete_passage_lines(line_ids: Sequence[str]) -> None:
+    """Remove sentences from a passage."""
+    soft_delete("passage_lines", list(line_ids))
+
+
 def resplit_passage(passage_id: str, raw_text: str) -> None:
     """Re-split a passage, preserving translations for unchanged sentences.
 
