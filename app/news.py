@@ -293,6 +293,17 @@ _PARA = re.compile(r"<(p|h[23])\b[^>]*>(.*?)</\1>", re.S | re.I)
 # sentence that merely says the word "credit" is not mistaken for one.
 _CAPTION = re.compile(r'class="[^"]*(?:credit|caption|hide-caption)'
                       r'|aria-label="Image', re.I)
+# A related-story promo NPR drops beside the text: a "slug" section label and
+# a headline whose link is tagged as recirculation. Not part of the article.
+_RECIRC = re.compile(r'recirculation|class="[^"]*\bslug\b', re.I)
+# The editorial footer -- editor credits and podcast/social/newsletter promos.
+# Once one of these appears the article is over, so collection stops there.
+_FOOTER = re.compile(
+    r"\bwas edited by\b|\bedited this (?:story|piece)\b"
+    r"|\bListen to\b.{0,60}\b(?:Apple Podcasts|Spotify|NPR One)\b"
+    r"|\bFollow (?:us|the show) on\b|\bsign up for\b.{0,30}\bnewsletter\b"
+    r"|\bLeave us a voicemail\b|\bSubscribe to\b.{0,40}\b(?:podcast|newsletter)\b",
+    re.I)
 
 
 def _article_body(url: str) -> str:
@@ -322,11 +333,18 @@ def _article_body(url: str) -> str:
     # which sit in their own elements.
     parts: list[str] = []
     for match in _PARA.finditer(region):
-        if _CAPTION.search(match.group(0)):   # an image caption/credit block
+        opening = match.group(0)
+        # Skip image captions and related-story promos -- title, subheadings,
+        # and body only.
+        if _CAPTION.search(opening) or _RECIRC.search(opening):
             continue
         text = clean(match.group(2))
         if not text or _IMGCREDIT.search(text):
             continue
+        # The editor-credit / promo footer ends the article; stop here so it
+        # and anything after it (share bars, more promos) are left out.
+        if _FOOTER.search(text):
+            break
         if match.group(1).lower().startswith("h"):
             text = "## " + text
         parts.append(text)

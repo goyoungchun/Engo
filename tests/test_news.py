@@ -170,6 +170,36 @@ def main() -> int:
           "Image credit" not in news.clean(
               "Body here. (Image credit: Vipin)"))
 
+    print("\n[관련기사 광고 · 편집자 푸터 제외 -- 제목/부제목/본문만]")
+    npr_page = (
+        '<div id="storytext">'
+        '<p>NEW YORK — Federal regulators are in settlement talks today.</p>'
+        '<h2 class="edTag">A real subheading of the article</h2>'
+        '<p>The market has grown quickly over the past year and a half.</p>'
+        # a related-story recirculation promo -- must be dropped
+        '<h3 class="slug"><a href="/sections/technology/">Technology</a></h3>'
+        '<h3><a data-metrics-ga4=\'{"category":"recirculation"}\'>'
+        'TV antennas and Super Bowl rehearsals</a></h3>'
+        '<p>She still enjoys learning; a listen to music helps her focus.</p>'
+        # the editorial footer -- must end collection
+        '<div class="hr"><hr /></div>'
+        '<p><em>The story was edited by Meghan Keane.</em></p>'
+        '<p><em>Listen to Life Kit on Apple Podcasts and Spotify.</em></p>'
+        '<p><em>Follow us on Instagram: @nprlifekit.</em></p>'
+        '</div>')
+    orig_ff3 = news._fetch_feed
+    news._fetch_feed = lambda u: npr_page.encode("utf-8")
+    got = news._article_body("https://www.npr.org/y")
+    news._fetch_feed = orig_ff3
+    check("본문 첫 문장은 그대로", got.startswith("NEW YORK"), got[:30])
+    check("실제 부제목은 유지", "## A real subheading" in got, got)
+    check("관련기사 슬러그(Technology)는 제외", "## Technology" not in got)
+    check("관련기사 제목(Super Bowl)은 제외", "Super Bowl" not in got)
+    check("'listen to music' 본문 문장은 살아남는다", "listen to music helps" in got)
+    check("편집자 크레딧은 제외", "edited by" not in got)
+    check("팟캐스트/인스타 홍보는 제외",
+          "Apple Podcasts" not in got and "Instagram" not in got, got[-60:])
+
     print("\n[지문 길이 분류]")
     check("10문장 이하 short", news.length_category_by_count(6) == "short")
     check("11~25 medium", news.length_category_by_count(18) == "medium")
