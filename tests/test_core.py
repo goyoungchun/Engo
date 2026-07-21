@@ -55,6 +55,19 @@ def test_sentence_split() -> None:
     check("소수점 유지", lines[2], "The value was 3.5 percent.")
     check("줄바꿈 분리", lines[3], "A new line here.")
 
+    # A country initialism before a capitalised name is one sentence, not two:
+    # "the U.S. Bureau of Labor Statistics" must not split after "U.S.".
+    us = repo.split_sentences(
+        "Data published by the U.S. Bureau of Labor Statistics confirmed it.")
+    check("U.S. + 대문자 고유명사는 한 문장", len(us), 1)
+    uk = repo.split_sentences("The U.N. Security Council met in the U.K. today.")
+    check("U.N./U.K. 이니셜리즘 유지", len(uk), 1)
+    # ...but a real sentence break after an initialism still splits.
+    two = repo.split_sentences("It happened in the U.S. The economy grew fast.")
+    # (acceptable either way for "U.S. The", but "a.m." before a capital must split)
+    am = repo.split_sentences("She left at 9 a.m. He stayed behind.")
+    check("소문자 약어 뒤 대문자는 분리 유지", len(am), 2)
+
 
 def test_crud_and_tombstone() -> None:
     print("\n[기본 저장 · 삭제]")

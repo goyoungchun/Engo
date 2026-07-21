@@ -8,6 +8,7 @@ forgotten at a call site.
 from __future__ import annotations
 
 import datetime as _dt
+import re
 from typing import Any, Iterable, Sequence
 
 from . import db
@@ -267,14 +268,26 @@ _TITLE_ABBREV = ("Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "St.", "Jr.", "Sr.")
 # These can legitimately end a sentence ("...arrived at 9 a.m. He said..."), so
 # they only suppress the split when what follows is not a new sentence -- i.e.
 # not whitespace followed by a capital letter.
-_SOFT_ABBREV = ("vs.", "etc.", "e.g.", "i.e.", "a.m.", "p.m.", "U.S.", "U.K.",
+_SOFT_ABBREV = ("vs.", "etc.", "e.g.", "i.e.", "a.m.", "p.m.",
                 "Inc.", "Ltd.", "No.", "Fig.")
+
+# An all-caps dotted initialism: U.S., U.K., U.N., E.U., U.S.A. Two or more
+# single-capital-and-dot pairs at the end of the last word.
+_INITIALISM = re.compile(r"(?:[A-Z]\.){2,}$")
 
 
 def _is_abbreviation(buf: str, rest: str) -> bool:
     """True if the period just consumed belongs to an abbreviation, not a stop."""
     tail = buf.rstrip()
     if any(tail.endswith(a) for a in _TITLE_ABBREV):
+        return True
+    # A country/organisation initialism is part of a name far more often than
+    # it ends a sentence -- even before a capital word -- so it never breaks:
+    # "the U.S. Bureau of Labor Statistics" is one sentence, not two. Lower-case
+    # dotted abbreviations (a.m.) stay soft below, so "at 9 a.m. He left" still
+    # splits.
+    last = tail.split()[-1] if tail.split() else tail
+    if _INITIALISM.search(last):
         return True
     if any(tail.endswith(a) for a in _SOFT_ABBREV):
         nxt = rest.lstrip()

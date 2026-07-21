@@ -66,6 +66,12 @@ def main() -> int:
     print("[정리: HTML·엔티티·이미지 캡션]")
     check("태그가 제거된다", news.clean("<p>hi <b>there</b></p>") == "hi there")
     check("엔티티가 풀린다", news.clean("A &amp; B &mdash; C") == "A & B — C")
+    check("저자 공개(fine-print)가 제거된다",
+          "does not work for" not in news.clean(
+              "<p>Body here now.</p><p class=\"fine-print\"><em>Jane Doe does "
+              "not work for, consult, own shares in any company.</em></p>"),
+          news.clean("<p>Body.</p><p class='fine-print'>Jane Doe does not "
+                     "work for anyone.</p>"))
     check("이미지 캡션(figure)이 통째로 제거된다",
           "Getty" not in news.clean(
               "<figure><figcaption>x Getty</figcaption></figure><p>body</p>"),

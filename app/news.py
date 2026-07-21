@@ -130,6 +130,13 @@ _HEADING = re.compile(r"<h[1-6][^>]*>(.*?)</h[1-6]>", re.S | re.I)
 # would otherwise open every passage as a stray fragment before the article
 # itself. Drop the figure wholesale.
 _FIGURE = re.compile(r"<(figure|figcaption)[^>]*>.*?</\1>", re.S | re.I)
+# The Conversation ends each article with an author disclosure in a
+# class="fine-print" paragraph ("<name> does not work for, consult, own shares
+# in..."). That is about the journalist, not the article, and has no place in
+# a passage to translate -- drop it.
+_FINEPRINT = re.compile(
+    r"<(p|div)[^>]*class=[\"'][^\"']*fine-print[^\"']*[\"'][^>]*>.*?</\1>",
+    re.S | re.I)
 _SPACE = re.compile(r"[ \t ]+")
 _BLANK = re.compile(r"\n\s*\n+")
 _ENTITY = {"&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"',
@@ -144,6 +151,7 @@ def clean(raw: str) -> str:
         return ""
     text = _SCRIPT.sub(" ", raw)
     text = _FIGURE.sub(" ", text)
+    text = _FINEPRINT.sub(" ", text)
     # Turn headings into their own marked line before the tags are stripped,
     # so the paragraph structure that tells a heading from body text is not
     # lost. Inner tags (a linked heading, say) are cleared by _TAG next.
