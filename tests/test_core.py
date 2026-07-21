@@ -106,6 +106,15 @@ def test_sentence_split() -> None:
     plain = repo.split_sentences("One here. Two here. Three here. Four here.")
     check("라벨 없는 산문은 그대로 분리", len(plain), 4)
 
+    # A period before a lowercase word is not a sentence end -- an uncaught
+    # abbreviation or a stray period ("...Peter Marra. who was not involved").
+    stray = repo.split_sentences(
+        "Georgetown biologist Peter Marra. who was not involved, told AP. "
+        "While the outlook is dire, there is hope.")
+    check("마침표 뒤 소문자는 문장 끝이 아님", len(stray), 2)
+    check("소문자 뒤 대문자에서만 나뉜다",
+          stray[0].endswith("told AP.") and stray[1].startswith("While"), True)
+
 
 def test_crud_and_tombstone() -> None:
     print("\n[기본 저장 · 삭제]")

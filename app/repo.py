@@ -364,6 +364,12 @@ def split_sentences(text: str) -> list[str]:
                     j += 1
                 i = j
                 if i >= len(block) or block[i] == " ":
+                    # A real sentence begins with a capital, a quote, or a
+                    # digit. A lowercase word after the stop means it is not
+                    # one -- an abbreviation we did not list, or a stray period
+                    # ("...Peter Marra. who was not involved..."). Do not break.
+                    if block[i:].lstrip()[:1].islower():
+                        continue
                     out.append(buf.strip())
                     buf = ""
                 continue
