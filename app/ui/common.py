@@ -11,7 +11,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QCompleter, QDateEdit, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPlainTextEdit, QVBoxLayout, QWidget,
+    QPlainTextEdit, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from .. import i18n, repo, theme
@@ -372,6 +372,41 @@ def hint_label(text: str = "") -> QLabel:
     label = QLabel(text)
     label.setObjectName("hint")
     return label
+
+
+class ElidingLabel(QLabel):
+    """A label that shortens its text with an ellipsis rather than demanding
+    the width to show all of it.
+
+    A plain QLabel reports the full text width as its size hint, so one long
+    string -- a fetched article's headline, say -- forces its whole panel
+    wide. Inside a splitter that pushes the neighbouring panel past the
+    window edge, and the two overlap. This keeps the label's width its own
+    business: it takes whatever it is given and elides to fit.
+    """
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(parent)
+        self._full = text
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._render()
+
+    def setText(self, text: str) -> None:      # noqa: N802 (Qt override)
+        self._full = text or ""
+        self._render()
+
+    def text(self) -> str:                     # noqa: N802
+        return self._full
+
+    def resizeEvent(self, event) -> None:      # noqa: N802
+        super().resizeEvent(event)
+        self._render()
+
+    def _render(self) -> None:
+        metrics = self.fontMetrics()
+        super().setText(metrics.elidedText(
+            self._full, Qt.ElideRight, max(0, self.width() - 2)))
+        self.setToolTip(self._full if self._full != super().text() else "")
 
 
 def toolbar_row() -> QHBoxLayout:

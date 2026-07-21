@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from .. import repo, theme, tts
 from ..i18n import t
-from .common import ArrowTextEdit, Card, english_font, hint_label
+from .common import ArrowTextEdit, Card, ElidingLabel, english_font, hint_label
 from .news_import import NewsDisclaimerDialog, NewsImportDialog
 
 COL_NO, COL_EN, COL_TRANS, COL_NOTE = range(4)
@@ -105,10 +105,19 @@ class ReadingTab(QWidget):
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.setHandleWidth(14)
-        splitter.addWidget(self._build_left())
-        splitter.addWidget(self._build_right())
+        left, right = self._build_left(), self._build_right()
+        # Modest, explicit minimums. Without them each panel's minimum is
+        # driven by its content -- a long article headline blew the right
+        # panel's minimum up past 800px, so the splitter could not shrink it
+        # and it overlapped the left. These sum well under any window, so the
+        # handle always has somewhere to go and the panels never collide.
+        left.setMinimumWidth(180)
+        right.setMinimumWidth(460)     # fits the button bar without clipping
+        splitter.addWidget(left)
+        splitter.addWidget(right)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
+        splitter.setChildrenCollapsible(False)
         splitter.setSizes([260, 820])
         outer.addWidget(splitter, 1)
 
@@ -123,6 +132,11 @@ class ReadingTab(QWidget):
 
         self.list = QListWidget()
         self.list.setFrameShape(QListWidget.NoFrame)
+        # Long article titles elide instead of demanding a horizontal
+        # scrollbar and a wider panel.
+        self.list.setTextElideMode(Qt.ElideRight)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.list.setWordWrap(False)
         self.list.currentItemChanged.connect(self._on_passage_selected)
         layout.addWidget(self.list, 1)
 
@@ -156,7 +170,9 @@ class ReadingTab(QWidget):
         self.head = QWidget()
         head = QHBoxLayout(self.head)
         head.setContentsMargins(0, 0, 0, 0)
-        self.title_label = QLabel()
+        # Eliding, not plain: a fetched article's headline is long, and a
+        # plain label would force the whole panel as wide as the text.
+        self.title_label = ElidingLabel()
         self.title_label.setObjectName("title")
         head.addWidget(self.title_label, 1)
 

@@ -40,10 +40,12 @@ _UA = "Mozilla/5.0 (Engo study app; personal use)"
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _CONTENT = "{http://purl.org/rss/1.0/modules/content/}encoded"
 
-# A passage should be a study session, not a wall of text. The Conversation's
-# full-body articles run past 7,000 characters; cut to the last sentence end
-# before this so a passage stays translatable in one sitting.
-MAX_BODY = 1800
+# Bring the whole article -- a truncated passage is worse than a long one,
+# and the reading tab is built for full texts. This is only a sanity ceiling
+# against a feed that returns something pathologically large; a real article
+# (The Conversation's full bodies run 7,000-8,000 characters) arrives whole.
+# When it does have to cut, _cap ends at a sentence boundary, never mid-word.
+MAX_BODY = 40000
 
 
 # --------------------------------------------------------------------------

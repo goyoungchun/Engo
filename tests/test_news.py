@@ -75,9 +75,12 @@ def main() -> int:
           news.clean("emotional support.'/><p>next</p>"))
     check("진짜 부등호는 유지된다",
           news.clean("5 > 3 and a < b") == "5 > 3 and a < b")
-    long = "A. " * 2000
-    check("긴 본문은 상한 아래로 잘린다", len(news._cap(long)) <= news.MAX_BODY)
-    check("문장 끝에서 잘린다", news._cap(long).endswith("."))
+    # Longer than the sanity ceiling, so the cap actually engages.
+    long = "A sentence. " * (news.MAX_BODY // 8)
+    check("상한을 넘는 본문만 잘린다", len(news._cap(long)) <= news.MAX_BODY)
+    check("잘릴 때는 문장 끝에서 잘린다", news._cap(long).endswith("."))
+    check("상한 이하 본문은 그대로 둔다",
+          news._cap("Short. Body.") == "Short. Body.")
 
     print("\n[파싱 · 길이 필터]")
     url = news.SOURCES[1].feeds["world"]     # NPR world url as a stand-in

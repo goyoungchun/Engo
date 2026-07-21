@@ -1,0 +1,129 @@
+"""The reading tab's two panels must never overlap, however wide the left.
+
+A long article headline used to force the right panel's minimum width past
+800px; inside the splitter that pushed it over the left panel, which then
+showed through clipped. And the fetched article body was capped so short it
+arrived truncated. Both are checked here against the real tab.
+
+Run:  .venv\\Scripts\\python.exe tests\\test_reading_layout.py
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+os.environ["ENGO_HOME"] = tempfile.mkdtemp(prefix="engo_layout_")
+os.environ.pop("QT_QPA_PLATFORM", None)
+
+from PySide6.QtCore import QElapsedTimer, QPoint, QTimer     # noqa: E402
+from PySide6.QtWidgets import QApplication, QSplitter        # noqa: E402
+
+app = QApplication.instance() or QApplication([])
+
+from app import db, news, repo, theme, tts                   # noqa: E402
+
+db.connect()
+palette = theme.apply(app, "violet")
+
+_failures: list[str] = []
+LONG = ("'The Trojan Teddy Bear': The promise and peril of childhood in the "
+        "age of artificial intelligence and what it means for everyone")
+
+
+def check(label: str, ok: bool, detail: str = "") -> None:
+    if ok:
+        print(f"  ok   {label}{('  ' + detail) if detail else ''}")
+    else:
+        print(f"  FAIL {label}  {detail}")
+        _failures.append(label)
+
+
+def pump(ms: int) -> None:
+    timer = QElapsedTimer()
+    timer.start()
+    while timer.elapsed() < ms:
+        app.processEvents()
+
+
+def run() -> None:
+    for _ in range(3):
+        repo.create_passage(LONG, "One sentence. Two sentence. Three now.",
+                            source_url="https://theconversation.com/x")
+
+    from app.ui.main_window import MainWindow
+    win = MainWindow(palette, lambda: 0)
+    win.resize(1000, 700)
+    win.show()
+    pump(400)
+    win.tabs.setCurrentIndex(1)
+    pump(400)
+    tab = win._built[1]
+    tab.list.setCurrentRow(0)
+    pump(200)
+
+    splitter = tab.findChild(QSplitter)
+    left, right = splitter.widget(0), splitter.widget(1)
+
+    def overlaps() -> bool:
+        lx = left.mapTo(tab, QPoint(0, 0)).x()
+        rx = right.mapTo(tab, QPoint(0, 0)).x()
+        return (lx + left.width()) > rx + 2
+
+    print("[제목이 패널 너비를 강제하지 않는다]")
+    check("오른쪽 최소너비가 500 이하", right.minimumWidth() <= 500,
+          str(right.minimumWidth()))
+    check("긴 제목이 …로 줄어든다", "…" in _shown(tab.title_label),
+          _shown(tab.title_label)[-24:])
+    check("전체 제목은 보존된다 (툴팁·데이터)", tab.title_label.text() == LONG)
+
+    print("\n[왼쪽을 넓혀도 겹치지 않는다]")
+    for target in ([650, 300], [750, 250], [820, 180]):
+        splitter.setSizes(target)
+        pump(200)
+        check(f"sizes≈{target}: 안 겹침", not overlaps(),
+              f"(실제 {splitter.sizes()})")
+    check("왼쪽이 실제로 넓어졌다", left.width() >= 300, str(left.width()))
+
+    print("\n[더 좁은 창]")
+    win.resize(900, 680)
+    pump(200)
+    splitter.setSizes([560, 300])
+    pump(200)
+    check("좁은 창에서도 안 겹침", not overlaps(),
+          f"(sizes {splitter.sizes()})")
+
+    print("\n[기사 본문이 잘리지 않는다]")
+    check("본문 상한이 넉넉하다 (>=20000)", news.MAX_BODY >= 20000,
+          str(news.MAX_BODY))
+    articles, error = news.fetch(["conversation"], ["world"], 2)
+    if error == "news_offline":
+        print("  건너뜀: 네트워크 없음")
+    else:
+        longest = max((len(a.text) for a in articles), default=0)
+        check("The Conversation 전체 본문이 온다 (>3000자)", longest > 3000,
+              f"({[len(a.text) for a in articles]})")
+
+    win.prepare_quit()
+    win.close()
+    tts.shutdown()
+    app.quit()
+
+
+def _shown(label) -> str:
+    """The text actually painted (elided), not the stored full text."""
+    from PySide6.QtWidgets import QLabel
+    return QLabel.text(label)
+
+
+QTimer.singleShot(300, run)
+app.exec()
+
+print()
+if _failures:
+    print(f"실패 {len(_failures)}건: {', '.join(_failures)}")
+    sys.exit(1)
+print("모든 원문 해석 레이아웃 테스트 통과")
