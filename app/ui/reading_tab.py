@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from .. import repo, theme, tts
 from ..i18n import t
-from .common import Card, english_font, hint_label
+from .common import ArrowTextEdit, Card, english_font, hint_label
 
 COL_NO, COL_EN, COL_TRANS, COL_NOTE = range(4)
 
@@ -26,7 +26,9 @@ class WrapTextDelegate(QStyledItemDelegate):
     """Cell editor that accepts newlines -- a translation often needs them."""
 
     def createEditor(self, parent, option, index):
-        editor = QPlainTextEdit(parent)
+        # ArrowTextEdit so "->" becomes "→" here too -- this is where the user
+        # hand-types a translation, the same as the entry tabs.
+        editor = ArrowTextEdit(parent)
         editor.setTabChangesFocus(True)
         return editor
 

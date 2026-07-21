@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QDateEdit, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QPlainTextEdit, QVBoxLayout, QWidget,
@@ -207,9 +207,61 @@ class LazyTableModel(QAbstractTableModel):
         return self._total
 
 
+# Typed sequences that become a single glyph, the way Notion does it. Only
+# "->" for now; add pairs here and the editor picks them up. The longest key
+# sets how far back we look on each completing keystroke.
+ARROW_SHORTCUTS = {"->": "→"}       # →
+
+
+class ArrowTextEdit(QPlainTextEdit):
+    """A text box that turns "->" into "→" as you type.
+
+    Done on the keystroke that completes the sequence, not on textChanged:
+    that keeps the cursor where the user expects and never rewrites text they
+    pasted or that was loaded from the database. Backspace immediately after a
+    substitution puts the original characters back, so a real "->" is always
+    reachable.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._undo_arrow: tuple[int, str] | None = None   # (position, typed)
+
+    def keyPressEvent(self, event) -> None:
+        # Backspace right after a substitution restores what was typed.
+        if (event.key() == Qt.Key_Backspace and self._undo_arrow is not None):
+            pos, typed = self._undo_arrow
+            cursor = self.textCursor()
+            if not cursor.hasSelection() and cursor.position() == pos:
+                cursor.beginEditBlock()
+                cursor.movePosition(QTextCursor.Left, QTextCursor.KeepAnchor, 1)
+                cursor.insertText(typed)
+                cursor.endEditBlock()
+                self._undo_arrow = None
+                return
+        self._undo_arrow = None
+
+        text = event.text()
+        if text:
+            for typed, glyph in ARROW_SHORTCUTS.items():
+                if not text.endswith(typed[-1]):
+                    continue
+                cursor = self.textCursor()
+                if cursor.hasSelection():
+                    break
+                back = len(typed) - 1        # chars already in the document
+                probe = self.textCursor()
+                probe.movePosition(QTextCursor.Left, QTextCursor.KeepAnchor, back)
+                if probe.selectedText() == typed[:-1]:
+                    probe.insertText(glyph)  # replaces the "-" and adds "→"
+                    self._undo_arrow = (self.textCursor().position(), typed)
+                    return
+        super().keyPressEvent(event)
+
+
 def make_editor(field: Field) -> QWidget:
     if field.kind == "text":
-        w = QPlainTextEdit()
+        w = ArrowTextEdit()
         if field.height:
             w.setFixedHeight(field.height)
         w.setTabChangesFocus(True)
